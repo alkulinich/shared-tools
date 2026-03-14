@@ -1,0 +1,103 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:developers.binance.com)",
+      "WebFetch(domain:github.com)",
+
+      "Bash(gh auth status:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh label list:*)",
+      "Bash(gh label create:*)",
+      "Bash(gh label:*)",
+
+      "Bash(git branch:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git -C shared diff)",
+
+      "Bash(npm install:*)",
+      "Bash(npm install)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run lint:fix:*)",
+      "Bash(npm run test:*)",
+      "Bash(timeout 10 npm run dev)",
+      "Bash(timeout 8 npm run dev:*)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx eslint:*)",
+
+      "Bash(docker build:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker exec:*)",
+
+      "Bash(./shared/scripts/set-current-command.sh:*)",
+      "Bash(./shared/scripts/git-start-issue.sh:*)",
+      "Bash(./shared/scripts/git-create-pr.sh:*)",
+      "Bash(./shared/scripts/git-test-pr.sh:*)",
+      "Bash(./shared/scripts/git-push-fixes.sh:*)",
+      "Bash(./shared/scripts/git-merge-pr.sh:*)",
+      "Bash(shared/scripts/set-current-command.sh:*)",
+      "Bash(shared/scripts/git-start-issue.sh:*)",
+      "Bash(shared/scripts/git-create-pr.sh:*)",
+      "Bash(shared/scripts/git-push-fixes.sh:*)",
+      "Bash(shared/scripts/git-test-pr.sh:*)",
+      "Bash(shared/scripts/git-merge-pr.sh:*)",
+      "Bash(bash shared/scripts/set-current-command.sh:*)",
+      "Bash(bash shared/scripts/git-start-issue.sh:*)",
+      "Bash(bash shared/scripts/git-create-pr.sh:*)",
+      "Bash(bash shared/scripts/git-push-fixes.sh:*)",
+      "Bash(bash shared/scripts/git-test-pr.sh:*)",
+      "Bash(bash shared/scripts/git-merge-pr.sh:*)",
+
+      "Skill(test-pr)",
+      "Skill(push-fixes)",
+      "Skill(start-issue)",
+      "Skill(create-pr)",
+
+      "Bash(chmod:*)",
+      "Bash(curl:*)",
+      "Bash(tree:*)",
+      "Bash(jq:*)",
+      "Bash(printf:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(echo:*)",
+      "Bash(head:*)",
+      "Bash(cat:*)",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(done)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$(git branch --show-current)\" != \"main\" ] || { echo '{\"block\": true, \"message\": \"Cannot edit on main. Create a feature branch.\"}' >&2; exit 2; }",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
