@@ -1,181 +1,81 @@
 #!/bin/bash
-# Installs Claude Code commands, permissions, and status line from the shared
-# submodule into the host repo.  Merges shared permissions into any existing
-# .claude/settings.json without destroying user customizations.
+# Installs commands and merges settings.json from the shared submodule
+# into the host repo, rewriting script paths to match the submodule location.
 #
-# Usage (from repo root):
-#   ./shared-tools/claude-example/scripts/install.sh [--force] [--dry-run]
-#
-# The script auto-detects the submodule path from its own location, so the
-# submodule can be cloned under any name (shared/, tools/, shared-tools/, etc.)
-#
-# Flags:
-#   --force    Overwrite git-workflow.md even if it already exists
-#   --dry-run  Show what would be done without writing any files
+# Usage: Run from repo root after `git submodule update`
+#   ./shared-tools/claude-example/scripts/install.sh
 
-set -euo pipefail
+set -e
 
-# ── Parse flags ──────────────────────────────────────────────────────────────
-FORCE=false
-DRY_RUN=false
-for arg in "$@"; do
-  case "$arg" in
-    --force)   FORCE=true ;;
-    --dry-run) DRY_RUN=true ;;
-    *)         echo "Unknown option: $arg"; exit 1 ;;
-  esac
-done
-
-# ── Derive paths ─────────────────────────────────────────────────────────────
-# Resolve all paths through pwd -P to canonicalize symlinks (e.g. /tmp → /private/tmp on macOS)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-SHARED_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
-
-# REPO_ROOT = the host repo's git root (works regardless of nesting depth)
-REPO_ROOT="$(cd "$SHARED_ROOT" && git rev-parse --show-toplevel)"
-
-# SUBMODULE_REL = relative path from repo root to SHARED_ROOT
-# e.g. "shared-tools/claude-example" or just "shared"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SHARED_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SHARED_ROOT/../.." && pwd)"
 SUBMODULE_REL="${SHARED_ROOT#"$REPO_ROOT"/}"
+SUBMODULE_GIT_REL="$(cd "$SHARED_ROOT/.." && basename "$(pwd)")"
 
-# SUBMODULE_GIT_ROOT = the submodule's own git root (for git -C operations)
-# In a real submodule this returns the submodule root; otherwise same as REPO_ROOT
-SUBMODULE_GIT_ROOT="$(cd "$SHARED_ROOT" && git rev-parse --show-toplevel)"
-SUBMODULE_GIT_REL="${SUBMODULE_GIT_ROOT#"$REPO_ROOT"/}"
-# If SUBMODULE_GIT_REL equals REPO_ROOT (not a submodule), derive from SUBMODULE_REL
-if [ "$SUBMODULE_GIT_REL" = "$SUBMODULE_GIT_ROOT" ] || [ "$SUBMODULE_GIT_REL" = "$REPO_ROOT" ]; then
-  # Use the first path component of SUBMODULE_REL as the git root
-  SUBMODULE_GIT_REL="${SUBMODULE_REL%%/*}"
-  # If no slash (flat structure), git root is the same as SUBMODULE_REL
-  if [ "$SUBMODULE_GIT_REL" = "$SUBMODULE_REL" ]; then
-    SUBMODULE_GIT_REL="$SUBMODULE_REL"
-  fi
-fi
-
-echo "Detected paths:"
-echo "  Repo root:      $REPO_ROOT"
-echo "  Shared content:  $SUBMODULE_REL"
-echo "  Submodule root:  $SUBMODULE_GIT_REL"
-echo ""
-
-# ── Validate prerequisites ───────────────────────────────────────────────────
-if ! command -v jq &>/dev/null; then
-  echo "Error: jq is required but not installed."
-  echo "  brew install jq   # macOS"
-  echo "  apt install jq    # Debian/Ubuntu"
-  exit 1
-fi
-
-if [ ! -f "$SHARED_ROOT/.claude/settings.json" ]; then
-  echo "Error: $SHARED_ROOT/.claude/settings.json not found"
-  exit 1
-fi
-
-if [ ! -d "$SHARED_ROOT/.claude/commands" ]; then
-  echo "Error: $SHARED_ROOT/.claude/commands/ not found"
-  exit 1
-fi
-
-# ── Helper: write or dry-run ─────────────────────────────────────────────────
-write_file() {
-  local dest="$1"
-  local content="$2"
-  if $DRY_RUN; then
-    echo "  [dry-run] would write: $dest"
-  else
-    mkdir -p "$(dirname "$dest")"
-    printf '%s' "$content" > "$dest"
-  fi
-}
-
-copy_file() {
-  local src="$1"
-  local dest="$2"
-  if $DRY_RUN; then
-    echo "  [dry-run] would copy: $src -> $dest"
-  else
-    mkdir -p "$(dirname "$dest")"
-    cp "$src" "$dest"
-  fi
-}
-
-# ── 1. Install commands ─────────────────────────────────────────────────────
-echo "Installing commands..."
 SOURCE_DIR="$SHARED_ROOT/.claude/commands"
-cmd_count=0
 
+if [ ! -d "$SOURCE_DIR" ]; then
+  echo "Error: Source commands not found at $SOURCE_DIR"
+  exit 1
+fi
+
+if ! command -v jq &>/dev/null; then
+  echo "Error: jq is required (brew install jq)"
+  exit 1
+fi
+
+# Install commands
+mkdir -p "$REPO_ROOT/.claude/commands"
+
+count=0
 while IFS= read -r file; do
   rel="${file#"$SOURCE_DIR"/}"
   dest="$REPO_ROOT/.claude/commands/$rel"
-  # Rewrite ./scripts/ references to point at the submodule's scripts
-  content="$(sed "s|\\./scripts/|${SUBMODULE_REL}/scripts/|g" "$file")"
-  write_file "$dest" "$content"
-  cmd_count=$((cmd_count + 1))
+  mkdir -p "$(dirname "$dest")"
+  sed "s|\\./scripts/|${SUBMODULE_REL}/scripts/|g" "$file" > "$dest"
+  count=$((count + 1))
 done < <(find "$SOURCE_DIR" -name '*.md' -type f)
 
-echo "  $cmd_count command(s) installed to .claude/commands/"
+echo "Installed $count command(s) to .claude/commands/"
 
-# ── 2. Install settings.json (merge) ────────────────────────────────────────
-echo "Installing settings..."
+# Install settings.json (merge if exists)
+SETTINGS_SRC="$SHARED_ROOT/.claude/settings.json"
+SETTINGS_DST="$REPO_ROOT/.claude/settings.json"
 
-TEMPLATE="$SHARED_ROOT/.claude/settings.json"
-EXISTING="$REPO_ROOT/.claude/settings.json"
-
-# Rewrite paths in the template:
-#   "shared/scripts/" → "<submodule_rel>/scripts/"  (permissions & statusLine)
-#   "shared/scripts/"  with ./ prefix too
-#   "git -C shared "   → "git -C <submodule_git_rel> "  (submodule git root)
-rewritten_template="$(sed \
-  -e "s|shared/scripts/|${SUBMODULE_REL}/scripts/|g" \
-  -e "s|git -C shared |git -C ${SUBMODULE_GIT_REL} |g" \
-  "$TEMPLATE")"
-
-if [ ! -f "$EXISTING" ]; then
-  # Fresh install — write rewritten template directly
-  write_file "$EXISTING" "$rewritten_template"
-  echo "  Created .claude/settings.json (fresh install)"
-else
-  # Merge: union permissions, replace statusLine, preserve everything else
-  if $DRY_RUN; then
-    echo "  [dry-run] would merge into existing .claude/settings.json"
-  else
-    merged="$(jq -s '
-      .[0] as $existing | .[1] as $new |
-      $existing * {
-        permissions: {
-          allow: (
-            (($existing.permissions.allow // []) + ($new.permissions.allow // []))
-            | unique
-          )
-        },
-        statusLine: $new.statusLine
-      }
-    ' "$EXISTING" <(printf '%s' "$rewritten_template"))"
-    printf '%s\n' "$merged" > "$EXISTING"
-    echo "  Merged permissions and updated statusLine in .claude/settings.json"
-  fi
+if [ ! -f "$SETTINGS_SRC" ]; then
+  echo "Warning: settings.json not found at $SETTINGS_SRC"
+  exit 0
 fi
 
-# ── 3. Copy git-workflow.md ──────────────────────────────────────────────────
+# Rewrite template paths to match actual submodule location
+rewritten="$(sed \
+  -e "s|shared/scripts/|${SUBMODULE_REL}/scripts/|g" \
+  -e "s|git -C shared |git -C ${SUBMODULE_GIT_REL} |g" \
+  "$SETTINGS_SRC")"
+
+if [ ! -f "$SETTINGS_DST" ]; then
+  printf '%s' "$rewritten" > "$SETTINGS_DST"
+  echo "Installed .claude/settings.json"
+else
+  merged="$(jq -s '
+    .[0] as $existing | .[1] as $new |
+    $existing * {
+      permissions: {
+        allow: (($existing.permissions.allow // []) + ($new.permissions.allow // []) | unique)
+      },
+      statusLine: $new.statusLine
+    }
+  ' "$SETTINGS_DST" <(printf '%s' "$rewritten"))"
+  printf '%s\n' "$merged" > "$SETTINGS_DST"
+  echo "Merged .claude/settings.json (permissions added, statusLine updated)"
+fi
+
+# Copy git-workflow.md if not present
 WORKFLOW_SRC="$SHARED_ROOT/git-workflow.md"
 WORKFLOW_DST="$REPO_ROOT/git-workflow.md"
 
-if [ -f "$WORKFLOW_SRC" ]; then
-  if [ ! -f "$WORKFLOW_DST" ] || $FORCE; then
-    copy_file "$WORKFLOW_SRC" "$WORKFLOW_DST"
-    echo "  Installed git-workflow.md"
-  else
-    echo "  Skipped git-workflow.md (already exists, use --force to overwrite)"
-  fi
-fi
-
-# ── Summary ──────────────────────────────────────────────────────────────────
-echo ""
-if $DRY_RUN; then
-  echo "Dry run complete. No files were modified."
-else
-  echo "Install complete!"
-  echo "  Submodule path: $SUBMODULE_REL"
-  echo "  Commands:       $cmd_count"
-  echo "  Settings:       .claude/settings.json"
+if [ -f "$WORKFLOW_SRC" ] && [ ! -f "$WORKFLOW_DST" ]; then
+  cp "$WORKFLOW_SRC" "$WORKFLOW_DST"
+  echo "Installed git-workflow.md"
 fi
