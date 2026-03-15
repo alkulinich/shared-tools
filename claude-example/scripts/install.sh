@@ -4,7 +4,10 @@
 # .claude/settings.json without destroying user customizations.
 #
 # Usage (from repo root):
-#   ./shared/scripts/install.sh [--force] [--dry-run]
+#   ./shared-tools/claude-example/scripts/install.sh [--force] [--dry-run]
+#
+# The script auto-detects the submodule path from its own location, so the
+# submodule can be cloned under any name (shared/, tools/, shared-tools/, etc.)
 #
 # Flags:
 #   --force    Overwrite git-workflow.md even if it already exists
@@ -24,10 +27,36 @@ for arg in "$@"; do
 done
 
 # ── Derive paths ─────────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SHARED_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$SHARED_ROOT/.." && pwd)"
-SUBMODULE_NAME="$(basename "$SHARED_ROOT")"
+# Resolve all paths through pwd -P to canonicalize symlinks (e.g. /tmp → /private/tmp on macOS)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+SHARED_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+
+# REPO_ROOT = the host repo's git root (works regardless of nesting depth)
+REPO_ROOT="$(cd "$SHARED_ROOT" && git rev-parse --show-toplevel)"
+
+# SUBMODULE_REL = relative path from repo root to SHARED_ROOT
+# e.g. "shared-tools/claude-example" or just "shared"
+SUBMODULE_REL="${SHARED_ROOT#"$REPO_ROOT"/}"
+
+# SUBMODULE_GIT_ROOT = the submodule's own git root (for git -C operations)
+# In a real submodule this returns the submodule root; otherwise same as REPO_ROOT
+SUBMODULE_GIT_ROOT="$(cd "$SHARED_ROOT" && git rev-parse --show-toplevel)"
+SUBMODULE_GIT_REL="${SUBMODULE_GIT_ROOT#"$REPO_ROOT"/}"
+# If SUBMODULE_GIT_REL equals REPO_ROOT (not a submodule), derive from SUBMODULE_REL
+if [ "$SUBMODULE_GIT_REL" = "$SUBMODULE_GIT_ROOT" ] || [ "$SUBMODULE_GIT_REL" = "$REPO_ROOT" ]; then
+  # Use the first path component of SUBMODULE_REL as the git root
+  SUBMODULE_GIT_REL="${SUBMODULE_REL%%/*}"
+  # If no slash (flat structure), git root is the same as SUBMODULE_REL
+  if [ "$SUBMODULE_GIT_REL" = "$SUBMODULE_REL" ]; then
+    SUBMODULE_GIT_REL="$SUBMODULE_REL"
+  fi
+fi
+
+echo "Detected paths:"
+echo "  Repo root:      $REPO_ROOT"
+echo "  Shared content:  $SUBMODULE_REL"
+echo "  Submodule root:  $SUBMODULE_GIT_REL"
+echo ""
 
 # ── Validate prerequisites ───────────────────────────────────────────────────
 if ! command -v jq &>/dev/null; then
@@ -78,8 +107,8 @@ cmd_count=0
 while IFS= read -r file; do
   rel="${file#"$SOURCE_DIR"/}"
   dest="$REPO_ROOT/.claude/commands/$rel"
-  # Rewrite ./scripts/ references to point at the submodule
-  content="$(sed "s|\\./scripts/|${SUBMODULE_NAME}/scripts/|g" "$file")"
+  # Rewrite ./scripts/ references to point at the submodule's scripts
+  content="$(sed "s|\\./scripts/|${SUBMODULE_REL}/scripts/|g" "$file")"
   write_file "$dest" "$content"
   cmd_count=$((cmd_count + 1))
 done < <(find "$SOURCE_DIR" -name '*.md' -type f)
@@ -92,8 +121,14 @@ echo "Installing settings..."
 TEMPLATE="$SHARED_ROOT/.claude/settings.json"
 EXISTING="$REPO_ROOT/.claude/settings.json"
 
-# Rewrite all "shared/" paths in template to use actual submodule name
-rewritten_template="$(sed "s|shared/|${SUBMODULE_NAME}/|g" "$TEMPLATE")"
+# Rewrite paths in the template:
+#   "shared/scripts/" → "<submodule_rel>/scripts/"  (permissions & statusLine)
+#   "shared/scripts/"  with ./ prefix too
+#   "git -C shared "   → "git -C <submodule_git_rel> "  (submodule git root)
+rewritten_template="$(sed \
+  -e "s|shared/scripts/|${SUBMODULE_REL}/scripts/|g" \
+  -e "s|git -C shared |git -C ${SUBMODULE_GIT_REL} |g" \
+  "$TEMPLATE")"
 
 if [ ! -f "$EXISTING" ]; then
   # Fresh install — write rewritten template directly
@@ -140,7 +175,7 @@ if $DRY_RUN; then
   echo "Dry run complete. No files were modified."
 else
   echo "Install complete!"
-  echo "  Submodule: $SUBMODULE_NAME"
-  echo "  Commands:  $cmd_count"
-  echo "  Settings:  .claude/settings.json"
+  echo "  Submodule path: $SUBMODULE_REL"
+  echo "  Commands:       $cmd_count"
+  echo "  Settings:       .claude/settings.json"
 fi
