@@ -2,7 +2,7 @@
 # Session time tracker using heartbeat approach.
 # Called by the status line on every tick. Appends a timestamp to a daily
 # heartbeat file and calculates total active session time for today.
-# Consecutive timestamps with gaps < 15 min are grouped into active segments.
+# Consecutive timestamps with gaps < 30 min are grouped into active segments.
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ date +%s >> "$HEARTBEAT_FILE"
 
 # Calculate active session time from today's heartbeats
 awk '
-BEGIN { total = 0; seg_start = 0; seg_end = 0; GAP = 900 }
+BEGIN { total = 0; seg_start = 0; seg_end = 0; GAP = 1800 }
 {
     ts = $1 + 0
     if (seg_start == 0) {
