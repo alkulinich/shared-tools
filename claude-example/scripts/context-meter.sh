@@ -33,5 +33,5 @@ fi
 
 reset='\033[0;34m'  # reset to blue (lives inside blue bracket)
 
-# Right-align percentage: 3 chars wide
-printf "${color}%s %3d%%${reset}" "$bar" "$pct"
+# Print percentage without padding
+printf "${color}%s%d%%${reset}" "$bar" "$pct"
