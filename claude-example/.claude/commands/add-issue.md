@@ -13,7 +13,9 @@ If no argument provided, ask the user what the issue should be about.
 0. **Track command:** `shared-tools/claude-example/scripts/set-current-command.sh add-issue`
 
 1. **Gather context:**
-   - Ask clarifying questions if the description is vague
+   - First, review the current conversation for relevant context: problems discussed, technical decisions, files/components involved, and conclusions reached
+   - Use the argument as the issue topic direction, enriched by conversation context
+   - Only ask clarifying questions if there's genuinely missing information that the conversation doesn't cover
    - Identify which docs are relevant (api/shop.md, api/manager.md, database-schema.md, etc.)
    - Determine if this is a feature, fix, or chore
 
