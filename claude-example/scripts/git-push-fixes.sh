@@ -10,6 +10,13 @@
 #
 set -e
 
+# Use rtk proxy if available (reduces LLM token usage)
+if command -v rtk &>/dev/null; then
+  rtk() { command rtk "$@"; }
+else
+  rtk() { "$@"; }
+fi
+
 # Track current command for status line
 "$(dirname "$0")/set-current-command.sh" push-fixes
 
@@ -37,17 +44,17 @@ echo ""
 
 # Step 1: Stage files
 echo -e "${GREEN}[1/3]${NC} Staging files: ${FILES[*]}"
-git add "${FILES[@]}"
+rtk git add "${FILES[@]}"
 
 # Step 2: Commit
 echo -e "${GREEN}[2/3]${NC} Committing changes"
-git commit -m "$MESSAGE
+rtk git commit -m "$MESSAGE
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 
 # Step 3: Push
 echo -e "${GREEN}[3/3]${NC} Pushing to origin"
-git push
+rtk git push
 
 echo ""
 echo -e "${GREEN}Done!${NC} Fixes pushed to $BRANCH"

@@ -13,6 +13,13 @@
 #
 set -e
 
+# Use rtk proxy if available (reduces LLM token usage)
+if command -v rtk &>/dev/null; then
+  rtk() { command rtk "$@"; }
+else
+  rtk() { "$@"; }
+fi
+
 # Track current command for status line
 "$(dirname "$0")/set-current-command.sh" test-pr
 
@@ -51,7 +58,7 @@ echo -e "  Branch: ${CYAN}$PR_BRANCH${NC}"
 STASHED=false
 if [[ -n $(git status --porcelain) ]]; then
     echo -e "${GREEN}[2/5]${NC} Stashing local changes"
-    git stash push -m "test-pr: before testing PR #$PR_NUMBER"
+    rtk git stash push -m "test-pr: before testing PR #$PR_NUMBER"
     STASHED=true
 else
     echo -e "${GREEN}[2/5]${NC} No local changes to stash"

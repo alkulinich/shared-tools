@@ -10,6 +10,13 @@
 #
 set -e
 
+# Use rtk proxy if available (reduces LLM token usage)
+if command -v rtk &>/dev/null; then
+  rtk() { command rtk "$@"; }
+else
+  rtk() { "$@"; }
+fi
+
 # Track current command for status line
 "$(dirname "$0")/set-current-command.sh" merge-pr
 
@@ -48,7 +55,7 @@ echo ""
 STASHED=false
 if [[ -n $(git status --porcelain) ]]; then
     echo -e "${GREEN}[1/5]${NC} Stashing local changes"
-    git stash
+    rtk git stash
     STASHED=true
 else
     echo -e "${GREEN}[1/5]${NC} No local changes to stash"
@@ -56,7 +63,7 @@ fi
 
 # Step 2: Switch to base branch
 echo -e "${GREEN}[2/5]${NC} Switching to $BASE_BRANCH"
-git checkout "$BASE_BRANCH"
+rtk git checkout "$BASE_BRANCH"
 
 # Step 3: Merge PR
 echo -e "${GREEN}[3/5]${NC} Merging PR #$PR_NUMBER (--$MERGE_METHOD)"
@@ -64,14 +71,14 @@ gh pr merge "$PR_NUMBER" "--$MERGE_METHOD"
 
 # Step 4: Pull and cleanup
 echo -e "${GREEN}[4/5]${NC} Pulling latest and pruning"
-git pull origin "$BASE_BRANCH"
-git branch -d "$PR_BRANCH" 2>/dev/null || true
-git fetch --prune
+rtk git pull origin "$BASE_BRANCH"
+rtk git branch -d "$PR_BRANCH" 2>/dev/null || true
+rtk git fetch --prune
 
 # Step 5: Restore stash if needed
 if [[ "$STASHED" == true ]]; then
     echo -e "${GREEN}[5/5]${NC} Restoring stashed changes"
-    git stash pop
+    rtk git stash pop
 else
     echo -e "${GREEN}[5/5]${NC} No stash to restore"
 fi

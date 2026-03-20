@@ -18,6 +18,13 @@
 #
 set -e
 
+# Use rtk proxy if available (reduces LLM token usage)
+if command -v rtk &>/dev/null; then
+  rtk() { command rtk "$@"; }
+else
+  rtk() { "$@"; }
+fi
+
 # Track current command for status line
 "$(dirname "$0")/set-current-command.sh" start-issue
 
@@ -67,7 +74,7 @@ echo ""
 STASHED=false
 if [[ -n $(git status --porcelain) ]]; then
     echo -e "${GREEN}[2/5]${NC} Stashing local changes"
-    git stash push -m "start-issue: before issue #$ISSUE_NUMBER"
+    rtk git stash push -m "start-issue: before issue #$ISSUE_NUMBER"
     STASHED=true
 else
     echo -e "${GREEN}[2/5]${NC} No local changes to stash"
@@ -75,25 +82,25 @@ fi
 
 # Step 3: Update main
 echo -e "${GREEN}[3/5]${NC} Updating main branch"
-git checkout main
-git pull origin main
+rtk git checkout main
+rtk git pull origin main
 
 # Step 4: Create or checkout feature branch
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
     echo -e "${GREEN}[4/5]${NC} Checking out existing branch: $BRANCH"
-    git checkout "$BRANCH"
+    rtk git checkout "$BRANCH"
 elif git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
     echo -e "${GREEN}[4/5]${NC} Checking out remote branch: $BRANCH"
-    git checkout -b "$BRANCH" "origin/$BRANCH"
+    rtk git checkout -b "$BRANCH" "origin/$BRANCH"
 else
     echo -e "${GREEN}[4/5]${NC} Creating branch: $BRANCH"
-    git checkout -b "$BRANCH"
+    rtk git checkout -b "$BRANCH"
 fi
 
 # Step 5: Restore stash if needed
 if [[ "$STASHED" == true ]]; then
     echo -e "${GREEN}[5/5]${NC} Restoring stashed changes"
-    git stash pop
+    rtk git stash pop
 else
     echo -e "${GREEN}[5/5]${NC} No stash to restore"
 fi

@@ -19,6 +19,13 @@
 #
 set -e
 
+# Use rtk proxy if available (reduces LLM token usage)
+if command -v rtk &>/dev/null; then
+  rtk() { command rtk "$@"; }
+else
+  rtk() { "$@"; }
+fi
+
 # Track current command for status line
 "$(dirname "$0")/set-current-command.sh" create-pr
 
@@ -54,16 +61,16 @@ if [[ "$CURRENT_BRANCH" == "$BRANCH" ]]; then
     echo -e "${GREEN}[1/5]${NC} Already on branch: $BRANCH"
 elif git show-ref --verify --quiet "refs/heads/$BRANCH"; then
     echo -e "${GREEN}[1/5]${NC} Checking out existing branch: $BRANCH"
-    git checkout "$BRANCH"
+    rtk git checkout "$BRANCH"
 else
     echo -e "${GREEN}[1/5]${NC} Creating branch: $BRANCH"
-    git checkout -b "$BRANCH"
+    rtk git checkout -b "$BRANCH"
 fi
 
 # Step 2: Stage files (if any provided)
 if [[ ${#FILES[@]} -gt 0 ]]; then
     echo -e "${GREEN}[2/5]${NC} Staging files: ${FILES[*]}"
-    git add "${FILES[@]}"
+    rtk git add "${FILES[@]}"
 else
     echo -e "${GREEN}[2/5]${NC} No files specified, skipping staging"
 fi
@@ -73,7 +80,7 @@ if git diff --cached --quiet; then
     echo -e "${GREEN}[3/5]${NC} No staged changes, skipping commit"
 else
     echo -e "${GREEN}[3/5]${NC} Committing changes"
-    git commit -m "$TITLE
+    rtk git commit -m "$TITLE
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 fi
@@ -86,7 +93,7 @@ if [[ "$LOCAL_COMMIT" == "$REMOTE_COMMIT" ]]; then
     echo -e "${GREEN}[4/5]${NC} Already pushed, skipping"
 else
     echo -e "${GREEN}[4/5]${NC} Pushing to origin"
-    git push -u origin "$BRANCH"
+    rtk git push -u origin "$BRANCH"
 fi
 
 # Step 5: Create PR (if it doesn't exist)
