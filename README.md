@@ -41,6 +41,7 @@ This copies commands into the repo's `.claude/` with paths rewritten for the sub
 | `/rulez:handoff` | Write HANDOFF.md for next agent |
 | `/rulez:dispatch-subagent` | Launch a subagent for a task |
 | `/rulez:simple-script` | Write a minimal shell script |
+| `/rulez:update-claudeset` | Pull latest version and re-run setup |
 | `/rulez:new-project:*` | New project setup workflow (7 steps) |
 
 ## Utility Scripts
