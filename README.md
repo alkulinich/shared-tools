@@ -5,7 +5,7 @@ Shared Claude Code commands, permissions, and status line for GitHub Flow workfl
 ## Install (global)
 
 ```bash
-git clone <repo-url> ~/.claude/skills/rulez-claudeset
+git clone https://github.com/alkulinich/rulez-claudeset ~/.claude/skills/rulez-claudeset
 cd ~/.claude/skills/rulez-claudeset && ./bin/setup
 ```
 
@@ -21,7 +21,7 @@ Auto-updates run in the background on every Claude Code session (1-hour throttle
 Add as a submodule and run the per-project installer:
 
 ```bash
-git submodule add <repo-url> rulez-claudeset
+git submodule add https://github.com/alkulinich/rulez-claudeset rulez-claudeset
 ./rulez-claudeset/install.sh
 ```
 

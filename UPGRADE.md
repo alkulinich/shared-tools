@@ -88,7 +88,7 @@ If you previously used the `shared/` submodule approach with `setup-commands.sh`
 
 1. **Install globally:**
    ```bash
-   git clone <repo-url> ~/.claude/skills/rulez-claudeset
+   git clone https://github.com/alkulinich/rulez-claudeset ~/.claude/skills/rulez-claudeset
    cd ~/.claude/skills/rulez-claudeset && ./bin/setup
    ```
 

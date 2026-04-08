@@ -125,7 +125,7 @@ gh pr create --base main --title "Feature: API Key Management"
 Claude Code commands automate the git workflow. Install via:
 
 ```bash
-git clone <repo-url> ~/.claude/skills/rulez-claudeset
+git clone https://github.com/alkulinich/rulez-claudeset ~/.claude/skills/rulez-claudeset
 cd ~/.claude/skills/rulez-claudeset && ./bin/setup
 ```
 
@@ -184,7 +184,7 @@ cd ~/.claude/skills/rulez-claudeset && ./bin/setup
 Auto-updates on every Claude Code session start. For per-project install (submodule):
 
 ```bash
-git submodule add <repo-url> rulez-claudeset
+git submodule add https://github.com/alkulinich/rulez-claudeset rulez-claudeset
 ./rulez-claudeset/install.sh
 ```
 
