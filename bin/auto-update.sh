@@ -45,8 +45,8 @@ git -C "$SKILL_DIR" pull --ff-only origin main 2>/dev/null || exit 0
 "$SKILL_DIR/setup" -q
 
 # Write marker for next session to display
-NEW_HEAD=$(git -C "$SKILL_DIR" rev-parse --short HEAD 2>/dev/null)
-OLD_SHORT=$(echo "$OLD_HEAD" | head -c 7)
-echo "$OLD_SHORT → $NEW_HEAD" > "$MARKER_FILE"
+OLD_VER=$(git -C "$SKILL_DIR" show "$OLD_HEAD:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
+NEW_VER=$(cat "$SKILL_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
+echo "v$OLD_VER → v$NEW_VER" > "$MARKER_FILE"
 
 date +%s > "$THROTTLE_FILE"

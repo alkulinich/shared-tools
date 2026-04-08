@@ -1,6 +1,6 @@
 # Upgrade Guide
 
-## From shared-tools (GitHub Flow, no develop branch)
+## To v1.0.0 — from shared-tools (GitHub Flow, no develop branch)
 
 If you used the `shared-tools/claude-example/` submodule with GitHub Flow (`main`-only) and unprefixed commands like `/start-issue`.
 
@@ -68,7 +68,7 @@ If you used the `shared-tools/claude-example/` submodule with GitHub Flow (`main
 
 ---
 
-## From legacy (shared submodule with develop branch)
+## To v1.0.0 — from legacy (shared submodule with develop branch)
 
 If you previously used the `shared/` submodule approach with `setup-commands.sh` / `sync-config.sh`, follow these steps.
 
