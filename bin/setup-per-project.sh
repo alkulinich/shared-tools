@@ -1,6 +1,6 @@
 #!/bin/bash
 # Per-project install: copies commands into a repo's .claude/ directory.
-# Usage: ./install.sh [repo-root]
+# Usage: ./bin/setup-per-project.sh [repo-root]
 # If repo-root not provided, assumes parent directory of this repo.
 set -e
 

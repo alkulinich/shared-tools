@@ -185,7 +185,7 @@ Auto-updates on every Claude Code session start. For per-project install (submod
 
 ```bash
 git submodule add https://github.com/alkulinich/rulez-claudeset rulez-claudeset
-./rulez-claudeset/install.sh
+./rulez-claudeset/bin/setup-per-project.sh
 ```
 
 

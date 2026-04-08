@@ -22,7 +22,7 @@ Add as a submodule and run the per-project installer:
 
 ```bash
 git submodule add https://github.com/alkulinich/rulez-claudeset rulez-claudeset
-./rulez-claudeset/install.sh
+./rulez-claudeset/bin/setup-per-project.sh
 ```
 
 This copies commands into the repo's `.claude/` with paths rewritten for the submodule location.
@@ -41,8 +41,8 @@ This copies commands into the repo's `.claude/` with paths rewritten for the sub
 | `/rulez:handoff` | Write HANDOFF.md for next agent |
 | `/rulez:dispatch-subagent` | Launch a subagent for a task |
 | `/rulez:simple-script` | Write a minimal shell script |
-| `/rulez:update-claudeset` | Pull latest version and re-run setup |
 | `/rulez:new-project:*` | New project setup workflow (7 steps) |
+| `/rulez:update-claudeset` | Pull latest version and re-run setup |
 
 ## Utility Scripts
 
