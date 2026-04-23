@@ -1,5 +1,38 @@
 # Upgrade Guide
 
+## To v1.1.0 — from v1.0.0
+
+Additive release. No breaking changes, no migration required beyond letting the SessionStart auto-update pull in the new code (or running `/rulez:update-claudeset`). `bin/setup` is idempotent and will pick up the new symlinks/settings additively.
+
+### What's new
+
+| Feature | Summary |
+|---------|---------|
+| `/rulez:todo` command | Manage a project-root `TODO.txt` in the [todo.txt format](https://github.com/todotxt/todo.txt/). Agent-interpretive — type `/rulez:todo buy milk`, `/rulez:todo done 3`, `/rulez:todo archive`, etc. Backed by `scripts/todo.sh` with full todo.sh subcommand parity (`add`, `ls`, `do`, `rm`, `pri`, `archive`). |
+| HANDOFF.md history in git | `/rulez:handoff` now commits `HANDOFF.md` after rewriting it. Past handoffs are preserved as git history on the current branch — view with `git log -p HANDOFF.md`. No separate HISTORY.md or CHANGELOG.md. Backed by `scripts/git-commit-handoff.sh`. |
+| `/effort` level in statusline | Statusline now shows a magenta `LOW` / `MED` / `HI` / `MAX` / `AUTO` chip between the model and session time. Sourced from (in order): undocumented JSON path, `$CLAUDE_CODE_EFFORT_LEVEL`, project `.claude/settings.json`, user `~/.claude/settings.json`. Omitted silently when nothing is configured. *Known gap:* mid-session `/effort max` doesn't persist to disk, so the chip won't reflect it until you also update settings. |
+| `RULEZ.md` global rules | New `RULEZ.md` at the repo root is symlinked to `~/.claude/RULEZ.md` by `bin/setup`, and `@RULEZ.md` is appended to `~/.claude/CLAUDE.md` so its contents are always in context. Current content: compact-instructions for preserving architecture/decisions/verification state during session compression. |
+
+### Minor rename
+
+`install.sh` → `bin/setup-per-project.sh`. If you had documentation or muscle memory pointing at `./install.sh`, update it. The global setup entry point (`bin/setup`) is unchanged.
+
+### Known gap: auto-update silently skips on divergence
+
+`bin/auto-update.sh` uses `git pull --ff-only`, which refuses to reconcile when the local clone at `~/.claude/skills/rulez-claudeset/` has committed locally (e.g., manual edits in the clone). If your clone has diverged and hasn't updated in a while, run:
+
+```bash
+# 1. Check if there's anything unique in your local commits first
+git -C ~/.claude/skills/rulez-claudeset log --oneline origin/main..HEAD
+
+# 2. If the above is empty or duplicates of work already on origin, reset:
+git -C ~/.claude/skills/rulez-claudeset fetch --depth 1 origin main
+git -C ~/.claude/skills/rulez-claudeset reset --hard origin/main
+~/.claude/skills/rulez-claudeset/bin/setup
+```
+
+---
+
 ## To v1.0.0 — from shared-tools (GitHub Flow, no develop branch)
 
 If you used the `shared-tools/claude-example/` submodule with GitHub Flow (`main`-only) and unprefixed commands like `/start-issue`.
