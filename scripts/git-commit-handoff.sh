@@ -16,9 +16,6 @@ else
   rtk() { "$@"; }
 fi
 
-# Track current command for status line
-"$(dirname "$0")/set-current-command.sh" handoff
-
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
