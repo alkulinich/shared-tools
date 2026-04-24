@@ -1,62 +1,65 @@
 # Handoff
 
 ## Task
-Formally cut a release for the features accumulated since `v1.0.0` (statusline effort chip, HANDOFF.md git history, `/rulez:todo` command, `RULEZ.md` global rules) and fix the auto-update mechanism, which had been silently failing for weeks due to a shallow-clone bug — discovered when the first `/rulez:update-claudeset` of the session refused to fast-forward.
+Investigate why the `/effort` chip in the statusline never displayed, then fix it and ship the fix as a formal release. The feature was "hacky by design" from v1.1.0 and had stopped working (or never worked) — confirmed broken when `/effort` was typed this session and no chip appeared.
 
 ## Current State
 - **Branch:** `main`, synced with `origin/main`
-- **Global install** at `~/.claude/skills/rulez-claudeset/`: at `v1.1.2`, unshallowed, setup clean
-- **Commits on `origin/main` this session (newest first):**
-  - `583926f` `fix: unshallow clone on first run (v1.1.2)`
-  - `7703a9d` `fix: drop --depth 1 from auto-update fetch (v1.1.1)`
-  - `e52fd4c` `chore: release v1.1.0`
-  - `729b30d` `refactor: drop set-current-command.sh call from git-commit-handoff.sh`
-  - `39d5a4e` `docs: handoff — Two back-to-back feature additions to rulez-claudeset:` (previous session's handoff)
-- **Files modified this session:**
-  - `VERSION` — `1.0.0` → `1.1.2`
-  - `UPGRADE.md` — new sections for `v1.1.0`, `v1.1.1`, `v1.1.2` added newest-first; the "Stuck clone?" recipe under v1.1.0 was reworded to reflect the `--depth 1` bug being fixed, but kept as a recovery recipe for genuine divergence (user-created local commits)
-  - `bin/auto-update.sh` — fetch now detects `.git/shallow` and runs `fetch --unshallow origin main` once, plain `fetch origin main` thereafter
-  - `commands/rulez/update-claudeset.md` — same shallow-aware conditional in the slash command
-  - `scripts/git-commit-handoff.sh` — user removed the `set-current-command.sh handoff` call; I committed & pushed that change
-- **Untracked:** `tmp/` (unrelated scratch, per repo convention)
+- **Released as v1.1.3.** Global install at `~/.claude/skills/rulez-claudeset/` is at v1.1.3, setup re-run, clean.
+- **Commits pushed this session (newest first):**
+  - `a436a6b` `chore: release v1.1.3`
+  - `8340f07` `fix: make /effort chip actually resolve`
+- **Files modified:**
+  - `scripts/statusline.sh` — replaced bogus `.effort_level // .model.effort` JSON probe with a transcript scan; added `xhigh → XHI` chip label; removed non-existent `auto`; added uppercase 4-char fallback for unknown values
+  - `VERSION` — `1.1.2` → `1.1.3`
+  - `UPGRADE.md` — new `## To v1.1.3 — from v1.1.2` section at the top documenting the fix, what's captured vs not (picker-form limitation), and the resolution order
+- **Untracked:** `tmp/` (per repo convention)
 
 ## What Worked
 
-**Auto-update diagnosis & fix (the main story).**
-- The first `/rulez:update-claudeset` failed with `Not possible to fast-forward`. Investigation showed the global clone was at commit `b316451` (Apr 8) — had been stuck there for weeks because `bin/auto-update.sh` used `git fetch --depth 1 origin main` + `pull --ff-only`, and `--ff-only` can't reconcile divergence. Meanwhile the origin had advanced through every subsequent feature.
-- Found 2 "orphan" local commits in the global clone (`b316451` statusline crash fix + `9b6bc79` 2458-line repo bootstrap). Verified they're duplicates of work already on origin under different SHAs (the repo had been re-committed from the working directory at `~/Dropbox/Projects/26.03-shared-tools/`). Saved as `/tmp/*.patch` files as a safety net, then `git reset --hard origin/main`, then confirmed all patch content was intact in the current tree (37/38 patched files present; the 1 "missing" file was `install.sh` → renamed to `bin/setup-per-project.sh` in commit `77db168`). Deleted the patches.
-- Root cause of the whole saga: **shallow clones (`--depth 1`) cannot verify a common ancestor once origin advances more than 1 commit**, so `pull --ff-only` aborts with false divergence. Fixed in two rounds:
-  - `v1.1.1` — dropped `--depth 1` from both fetch call sites. Insufficient alone: plain `git fetch origin main` on a pre-existing shallow clone only fetches the new tip, still leaving the ancestry gap. Hit this during the first post-release update.
-  - `v1.1.2` — added `if [ -f .git/shallow ]; then fetch --unshallow ...` guard. Now self-healing for any clone stuck from before — `fetch --unshallow` once, plain `fetch` forever after.
+**Root-cause investigation.**
+- Added a temporary `printf "$input" > /tmp/cc-statusline-debug.json` tee to capture real statusLine stdin — but the capture landed after my edits (Claude Code renders statusline on event, and my edit came mid-turn), so I used web research as the authoritative signal instead. Removed the debug tee in the same edit cycle.
+- WebSearch + WebFetch of [Claude Code statusline docs](https://code.claude.com/docs/en/statusline) confirmed the stdin schema: `model.{id,display_name}`, `cwd`, `workspace.*`, `context_window.*`, `rate_limits.*`, `exceeds_200k_tokens`, `session_id`, `transcript_path` — **no effort/reasoning field anywhere**. Confirmed via [claude-code#51982 (and dedupes #50577, #27747, #31987, #36187, #38476)](https://github.com/anthropics/claude-code/issues/51982) that this is a known pending upstream feature request since Claude Code 2.1.111.
+- `claude --help | grep effort` confirmed real values: `low, medium, high, xhigh, max` — no `auto`, despite earlier UPGRADE notes.
 
-**Release cuts.**
-- Bumped VERSION `1.0.0` → `1.1.0` and wrote a proper `v1.1.0` UPGRADE.md section covering the 4 features accumulated since v1.0.0 (`/rulez:todo`, HANDOFF.md git history, effort-level statusline chip, `RULEZ.md` global rules), plus the minor `install.sh` → `bin/setup-per-project.sh` rename.
-- `v1.1.1` and `v1.1.2` followed as patch bumps for the auto-update fixes. Each bumped VERSION, added a top-of-file UPGRADE.md section, committed, pushed.
+**The fix (`scripts/statusline.sh`).**
+- Dropped `jq -r '.effort_level // .model.effort // empty'` (always empty).
+- Added `transcript=$(echo "$input" | jq -r '.transcript_path // empty')`.
+- Scan the transcript JSONL with `grep -oE '<command-name>/effort</command-name>[^<]{0,80}<command-message>[^<]{0,40}</command-message>[^<]{0,80}<command-args>[^<]+</command-args>'` — tight gap budget avoids false positives from transcript content that quotes the invocation structure (this session's own Bash-call history contained such strings). Take the last match, sed-extract the args, `tr -d '[:space:]\\'` to strip the literal JSON `\n` escapes.
+- Fallback chain kept: env var → project settings.json `effortLevel` → user settings.json `effortLevel`.
+- Chip label: added `xhigh → XHI`; removed `auto`; unknown values → `printf | tr '[:lower:]' '[:upper:]' | cut -c1-4`.
 
-**Process.**
-- The new `/rulez:handoff` + `git-commit-handoff.sh` flow dogfooded successfully — the Apr 8 handoff is now durable git history (commit `39d5a4e`).
-- `/rulez:todo` + related 1.1.0 features all verified live after the global install finally caught up.
+**Testing.**
+- Wrote 6 smoke tests covering empty state, env var fallback, settings.json fallback, explicit-arg transcript scan, multi-invocation latest-wins, and picker-form (empty args) → fall through. All pass. Real-session transcript correctly returns `MAX` **only because** this very session's Bash command payloads contained the structural pattern — in a clean session, stray content won't match the full 3-tag regex.
+
+**Release.**
+- Mirrored the updated `scripts/statusline.sh` to `~/.claude/skills/rulez-claudeset/scripts/statusline.sh` for immediate live feedback (the global install is a separate clone, not a symlink — was one of today's gotchas).
+- Committed/pushed `8340f07` (fix alone), then `a436a6b` (VERSION bump + UPGRADE.md entry).
+- `/rulez:update-claudeset` surfaced a collision: the mirror had left the global clone with "modified" status against HEAD even though content now matched origin's new tip. Discarded with `git checkout -- scripts/statusline.sh`, then `pull --ff-only` succeeded. Setup re-ran clean.
 
 ## What Didn't Work
 
-- **v1.1.1 was an incomplete fix.** Dropped `--depth 1` from new fetches but didn't account for pre-existing shallow clones. Had to do `git fetch --unshallow` manually mid-session to bootstrap past the bug, then shipped v1.1.2 as the proper self-healing version. Noted in UPGRADE.md's v1.1.1 entry that it's superseded.
-- **`bin/auto-update.sh` lacks observable failure signals.** When `pull --ff-only` silently exits 0 on divergence, no marker file, no next-session notification, no log. That's why the clone was stuck for weeks without anyone noticing. Not fixed this session. Cheap fix would be: on `pull --ff-only` failure, write `.update-failed-marker` with the error so a setup step next session can surface it.
-- **`scripts/set-current-command.sh` still errors in repos without `.claude/`** (unconditional write to `.claude/.current-command`). Bit the `/tmp/todo-test` verification earlier in the day. Cheap one-liner fix (`mkdir -p .claude`) is still outstanding. Not urgent — user removed this call from `git-commit-handoff.sh` this session anyway, but other `git-*.sh` scripts still have it.
+- **Loose transcript regex (first attempt).** `grep -F '<command-name>/effort</command-name>' | grep -oE '<command-args>[^<]+</command-args>'` matched any `<command-args>` on a line mentioning `/effort`. Failed test 7 (real transcript) with a false-positive `MAX` from unrelated quoted content. Fixed by requiring the full name+message+args structure in one regex match with a 80-char gap budget between tags.
+- **First regex used `[[:space:]]` for the inter-tag gap.** Failed because JSONL content is JSON-escaped — the `\n` between tags is literal backslash-n, not a real newline. `[[:space:]]` matches neither. Switched to `[^<]{0,80}` which correctly matches any non-tag characters including the literal backslash-n + indentation.
+- **Mirroring to the global install via `cp` leaves the clone in a dirty state** vs. its own HEAD — so the next `git pull --ff-only` refuses. Not a blocker but a friction point for future dev-loop shortcuts.
+- **Picker-form `/effort` overrides cannot be captured.** When the user types `/effort` and selects via arrow keys, the chosen value is not written to the transcript (empty `<command-args>`), not written to settings.json, not exposed in statusLine JSON. The chip cannot reflect picker-form overrides. This is an upstream limitation — documented in the v1.1.3 UPGRADE.md section honestly rather than hand-waved.
 
 ## Next Steps
 
-Ordered by priority:
+Ordered by priority.
 
-1. **Smoke-test the new `/rulez:todo` in a real session.** Try `/rulez:todo buy milk`, `/rulez:todo ls`, `/rulez:todo done 1`, `/rulez:todo archive`. Command is confirmed registered in the skill list; only thing left is end-to-end validation in a fresh repo.
-2. **Add a failure marker to `bin/auto-update.sh`** so silent skips are visible. On `fetch` or `pull --ff-only` failure, write `"auto-update failed: <reason>"` to `$MARKER_FILE` (currently only used for "updated v1.0.0 → v1.1.2" success notices). Next session can surface it.
-3. **Harden `scripts/set-current-command.sh`**: add `mkdir -p .claude` before the redirect. One-line fix. Would also make scripts work in freshly-cloned repos without a `.claude/` dir.
-4. **Consider whether `--ff-only` is too strict** for an auto-updater. An argument for `--rebase --autostash`: if the only local commits are duplicates (which is what happened here), rebase collapses them cleanly. Argument against: silently rewriting commits in a clone is surprising. Probably keep `--ff-only` but add the marker (step 2) so failures aren't invisible.
-5. **Deferred `todo.sh` extras** (from earlier plan): colored output by priority, `$TODO_FILE` env var, `append` subcommand. None urgent.
+1. **Verify the chip in this very session.** Type `/effort max` (explicit arg) at a prompt. Next statusline render should show `MAX` in magenta between model and session time. If not, the transcript scan didn't fire — check that `.transcript_path` is non-empty in the statusLine stdin (sanity-print it via a tempoary `echo "$transcript" >> /tmp/sl.log` in the script) and that the transcript actually has the full tag structure on one line.
+2. **Add failure marker to `bin/auto-update.sh`** (carryover from previous session). On `fetch` or `pull --ff-only` failure, write `"auto-update failed: <reason>"` to `$MARKER_FILE` so silent skips become visible next session. Still outstanding.
+3. **Harden `scripts/set-current-command.sh`**: prepend `mkdir -p .claude` before the redirect. One-liner. Still outstanding from previous session.
+4. **Smoke-test `/rulez:todo` end-to-end in a real session** (`/rulez:todo buy milk` → `ls` → `done 1` → `archive`). Still outstanding from previous session.
+5. **Watch upstream [claude-code#51982](https://github.com/anthropics/claude-code/issues/51982).** If Claude Code adds `.model.effort` to statusLine stdin, add it as the highest-precedence source in `statusline.sh` above the transcript scan (and remove the "picker form is lost" caveat from UPGRADE.md).
 
 ## Key Decisions
 
-- **Chose sequential patch bumps (v1.1.1 → v1.1.2) over force-pushing an amended v1.1.1.** Even though v1.1.1 was buggy and nobody was on it for long, rewriting pushed history is worse than a two-release fix trail. `v1.1.1`'s UPGRADE.md entry now marks it as superseded.
-- **Patches to `/tmp/` before `git reset --hard`**: the user asked for belt-and-suspenders before I ran the destructive op. After verifying the patches' content was already in origin under different SHAs, deleted them. Paranoia served its purpose: zero unique work lost, one layer of safety exercised.
-- **Shallow-aware conditional over "always `--unshallow`"**: `git fetch --unshallow` on an already-deep clone errors out (`fatal: --unshallow on a complete repository does not make sense`), so we need the `.git/shallow` guard. Alternative was `git fetch --unshallow origin main 2>/dev/null || git fetch origin main`, which is one-liner shorter but obscures intent. Chose the explicit `if ... fi` in both the shell script and the .md command — it's obvious what's happening and why.
-- **Documented the auto-update silent-failure gap in UPGRADE.md v1.1.0, kept the recipe in v1.1.2-adjacent form.** The recipe (diagnose orphan commits, reset if they're duplicates) is still useful for any operator whose clone has genuinely diverged via manual commits. The `--depth 1` aspect is fixed but the divergence-from-manual-commits case remains.
-- **`v1.1.0` did not get its own release commit dedicated to version bumps alone at the time of the features shipping** — the features were committed as `feat:` commits without touching VERSION, then v1.1.0 was cut in one `chore: release v1.1.0` commit bumping VERSION + writing UPGRADE.md. This is fine, but worth noting: a future release-automation skill would want to either bump on every `feat:` or enforce a "release" step after feature merges.
+- **No bundling with other fixes.** v1.1.3 ships only the `/effort` chip fix + docs. Could have piggy-backed the `set-current-command.sh` fix or the auto-update marker, but those are unrelated and would muddy the UPGRADE.md story. One patch release, one concern.
+- **Transcript scan over "just fix the env var path" alone.** The env var + settings.json fallbacks work for persistent defaults but not for session overrides — which is the exact use case the chip is supposed to surface. Without transcript scanning, the chip would still be useless for the user's primary workflow (`/effort max` mid-session). Accepted the regex fragility in exchange for the mid-session capture.
+- **Tight regex gap budget (80 chars between tags) rather than `[^<]*`.** Tighter is better because Claude Code's own inter-tag content is `\n            ` (14 chars) and rarely exceeds ~40. An 80-char budget fits real invocations with headroom but won't span stray content in unrelated transcript lines. Tested both loose and tight against the real session transcript — only tight correctly rejected the false positives from my earlier Bash command strings.
+- **Honest picker-form caveat in UPGRADE.md.** Easy to gloss over — instead, called out explicitly that picker-form overrides cannot be captured and linked to the upstream issue. Prevents the next "why doesn't it reflect my /effort picker choice?" bug report.
+- **Uppercase 4-char truncation for unknown values.** Defensive: if Anthropic adds a new level (e.g. `ultra`, `insane`, `auto`), the chip still renders something sane (`ULTR`, `INSA`, `AUTO`) instead of dropping the chip entirely. Future-proof without hardcoding hypothetical values.
+- **Separate fix commit + release commit.** `8340f07` is the isolated behavior change; `a436a6b` is VERSION + UPGRADE.md only. Keeps the git history easy to bisect — if the fix ever needs to be reverted, reverting `8340f07` is a clean operation without churn in VERSION/UPGRADE.md.
+- **Mirrored fix to global install before push** for fast live feedback, accepting the "modified" dirty state that `/rulez:update-claudeset` then had to resolve. Tradeoff: one extra step during the update (`git checkout -- scripts/statusline.sh`), gained same-window live verification. For future mirrored fixes, consider `git -C ~/.claude/skills/rulez-claudeset stash` before mirroring, or skip mirroring and push first.
