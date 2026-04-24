@@ -1,5 +1,28 @@
 # Upgrade Guide
 
+## To v1.1.3 — from v1.1.2
+
+Patch release. No user action required.
+
+### Fixed
+
+- **`/effort` chip in the statusline now actually renders.** It never worked: the primary probe read a `.effort_level` / `.model.effort` JSON field that upstream doesn't emit (tracked at [anthropics/claude-code#51982](https://github.com/anthropics/claude-code/issues/51982)), and the fallback chain (`CLAUDE_CODE_EFFORT_LEVEL` env var, `effortLevel` in settings.json) was unset for most users — so the chip resolved to empty every render.
+
+  The bogus JSON probe is gone. In its place, the script now scans `transcript_path` for the most recent explicit `/effort <level>` invocation, which captures mid-session overrides as long as you pass the level as an arg (e.g., `/effort max`). The interactive picker form (`/effort` + arrow-key selection) still can't be captured — Claude Code doesn't write the selected value anywhere the statusline can read, so picker-selected overrides remain invisible until upstream exposes effort in the statusline JSON.
+
+- **Chip label set matches real CLI values.** Added `xhigh` → `XHI`; removed non-existent `auto`. Unknown values fall back to an uppercase 4-char truncation.
+
+### To see the chip
+
+The chip is still opt-in — nothing displays until effort is resolvable from one of these sources (in order):
+
+1. Most recent `/effort <level>` in the current session's transcript.
+2. `CLAUDE_CODE_EFFORT_LEVEL` env var, e.g. `export CLAUDE_CODE_EFFORT_LEVEL=high`.
+3. `effortLevel` in the project `.claude/settings.json`.
+4. `effortLevel` in `~/.claude/settings.json`.
+
+---
+
 ## To v1.1.2 — from v1.1.1
 
 Patch release. No user action required.
