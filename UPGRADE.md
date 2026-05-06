@@ -1,5 +1,28 @@
 # Upgrade Guide
 
+## To v1.2.1 — from v1.2.0
+
+Patch release. No user action required.
+
+### Fixed
+
+- **Stop hook no longer re-screens the entire transcript on every turn.**
+  `scripts/punts-detect.sh` previously `jq`-walked the full JSONL transcript
+  from byte 0 at every Stop fire, even though transcripts are append-only —
+  making the hook's cost grow linearly with session length. The script now
+  persists a per-session byte offset at `.claude/punts/state/<session_id>.offset`
+  and only screens bytes added since the last run. Output filenames change from
+  `raw/<session_id>.json` (overwritten each run) to
+  `raw/<session_id>-<offset>-<pid>.json` (one per Stop run that finds hits) —
+  `/rulez:punts-triage` already iterates `raw/*.json` so it consumes the new
+  shape transparently.
+
+### Project-level housekeeping
+
+If your project tracks `.claude/punts/raw/` in `.gitignore`, add
+`.claude/punts/state/` to the same ignore block — state files are transient
+bookkeeping, not artifacts.
+
 ## To v1.2.0 — from v1.1.4
 
 Additive feature release. No breaking changes. Re-run `bin/setup` (or let the
