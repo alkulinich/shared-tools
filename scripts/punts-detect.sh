@@ -191,8 +191,13 @@ fi
     chunk_hits="${chunk_hits_payloads[$i]}"
 
     prompt="$(bash "$SCRIPT_DIR/punts-extract-prompt.sh" "$slice_file" "$session_id" "$chunk_hits")"
+    # Trust the exit status AND validate the output is parseable JSON. A 0
+    # exit with truncated stdout is a real failure mode (saw it on >5 MB
+    # transcripts pre-v1.2.2). On any failure, the synchronous regex-only
+    # fallback already on disk survives.
     if "$CLAUDE_BIN" -p "$prompt" --output-format json --max-turns 1 \
-         > "$out_file.tmp" 2>/dev/null; then
+         > "$out_file.tmp" 2>/dev/null \
+       && jq -e . "$out_file.tmp" >/dev/null 2>&1; then
       mv "$out_file.tmp" "$out_file"
     else
       rm -f "$out_file.tmp"

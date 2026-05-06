@@ -198,6 +198,50 @@ test_new_bytes_written_only_for_new_window() {
   rm -rf "$proj"
 }
 
+test_invalid_subagent_output_falls_back_to_regex() {
+  local proj transcript stdin sid fake_bin out fallback i
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  sid="session-invalid-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  # Fake claude that "succeeds" (exit 0) but emits garbage that isn't valid
+  # JSON — simulates the truncated-output failure mode. The hook should
+  # detect this via jq -e and leave the synchronous regex-only fallback in
+  # place rather than overwriting it with the garbage.
+  fake_bin="$proj/bin"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/claude" <<'EOF'
+#!/usr/bin/env bash
+printf 'this is not valid json {{{ truncated...'
+exit 0
+EOF
+  chmod +x "$fake_bin/claude"
+
+  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  out="$(find_raw_file "$proj" "$sid")"
+  if [ -z "$out" ]; then
+    printf '  FAIL: invalid-subagent: no raw file found\n'
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    rm -rf "$proj"
+    return
+  fi
+
+  # Wait briefly for the backgrounded subshell to attempt enrichment + reject it.
+  i=0
+  while [ "$i" -lt 30 ]; do
+    [ ! -f "$out.tmp" ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  fallback=$(jq -r '.fallback // empty' "$out" 2>/dev/null)
+  assert_eq "regex-only" "$fallback" "invalid-subagent: regex-only fallback retained on garbage output"
+  rm -rf "$proj"
+}
+
 test_chunking_produces_multiple_raw_files() {
   local proj transcript stdin sid count i
   proj="$(make_temp_project)"
