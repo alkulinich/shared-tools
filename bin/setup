@@ -76,6 +76,24 @@ else
     log "SessionStart hook already present"
   fi
 
+  # Stop hook: skip if rulez-claudeset hook already present.
+  has_stop_hook=$(echo "$merged" | jq -e '.hooks.Stop | map(select(.hooks[]?.command | test("rulez-claudeset"))) | length > 0' 2>/dev/null && echo yes || echo no)
+  if [ "$has_stop_hook" = "no" ]; then
+    merged="$(echo "$merged" | jq '
+      .hooks.Stop //= [] |
+      .hooks.Stop += [{
+        "matcher": "",
+        "hooks": [{
+          "type": "command",
+          "command": "bash ~/.claude/skills/rulez-claudeset/scripts/punts-detect.sh"
+        }]
+      }]
+    ')"
+    log "Added Stop hook (punts detection)"
+  else
+    log "Stop hook already present"
+  fi
+
   printf '%s\n' "$merged" > "$SETTINGS_DST"
   log "Merged ~/.claude/settings.json"
 fi
