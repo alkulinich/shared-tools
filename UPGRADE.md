@@ -1,5 +1,24 @@
 # Upgrade Guide
 
+## To v1.2.3 — from v1.2.2
+
+Patch release. No user action required. Documentation/clarity fix only;
+behavior unchanged from v1.2.2.
+
+### Fixed
+
+- **Subagent prompt now reflects the slice-file reality.**
+  `scripts/punts-extract-prompt.sh` was still calling its input
+  `transcript_path` and telling the subagent to "Read the transcript at
+  …" — but since v1.2.2 the file passed in is actually a per-chunk slice
+  with intentionally-clipped surrounding bytes. The prompt now names it a
+  "transcript slice" and instructs the subagent to limit quotes to what's
+  in the slice; the variable is renamed `slice_path` for the same reason.
+  The `session_ended_at` line also notes that the timestamp reflects when
+  the Stop hook fired, not when the underlying messages were originally
+  written (matters during backlog drains). No functional change to the
+  hook or the output schema.
+
 ## To v1.2.2 — from v1.2.1
 
 Patch release. No user action required.
