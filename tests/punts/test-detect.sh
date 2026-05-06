@@ -60,60 +60,6 @@ test_marker_detected() {
   rm -rf "$proj"
 }
 
-test_subagent_writes_structured_json() {
-  local proj transcript stdin out fake_bin fake_payload
-  proj="$(make_temp_project)"
-  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
-  stdin="$(make_stdin "$transcript" "session-subagent-001")"
-
-  # Fake claude binary that emits a structured evidence array (one row).
-  fake_bin="$proj/bin"
-  fake_payload="$proj/fake-claude-output.json"
-  cat > "$fake_payload" <<'EOF'
-[
-  {
-    "id": "0000000000000000000000000000000000000001",
-    "session_id": "session-subagent-001",
-    "session_ended_at": "2026-05-06T14:30:00Z",
-    "branch": "main",
-    "evidence_quote": "the auth middleware has a pre-existing bug — leaving it",
-    "context_quote": "...",
-    "claim": "auth middleware bug",
-    "files_mentioned": [],
-    "regex_hit": "pre-existing",
-    "source": "regex",
-    "subagent_confidence": "medium"
-  }
-]
-EOF
-  install_fake_claude "$fake_bin" "$fake_payload"
-
-  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
-
-  # The synchronous regex-only write makes the file appear immediately, then
-  # the backgrounded subagent overwrites it. Poll until the structured array
-  # shape lands instead of just waiting for file existence.
-  out="$(find_raw_file "$proj" "session-subagent-001")"
-  if [ -z "$out" ]; then
-    printf '  FAIL: subagent: raw file did not appear\n'
-    TESTS_RUN=$((TESTS_RUN + 1))
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-    rm -rf "$proj"
-    return
-  fi
-
-  if wait_for_jq_value "$out" '.[0].id // empty' \
-       "0000000000000000000000000000000000000001" 5; then
-    printf '  ok: subagent: structured JSON id passed through\n'
-    TESTS_RUN=$((TESTS_RUN + 1))
-  else
-    printf '  FAIL: subagent: structured JSON id did not appear within 5s\n'
-    TESTS_RUN=$((TESTS_RUN + 1))
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-  fi
-  rm -rf "$proj"
-}
-
 test_prompt_contains_required_fields() {
   local prompt
   prompt=$(bash "$SCRIPTS_DIR/punts-extract-prompt.sh" \
@@ -235,50 +181,6 @@ test_no_sigpipe_on_large_transcript() {
   rm -rf "$proj"
 }
 
-test_invalid_subagent_output_falls_back_to_regex() {
-  local proj transcript stdin sid fake_bin out fallback i
-  proj="$(make_temp_project)"
-  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
-  sid="session-invalid-001"
-  stdin="$(make_stdin "$transcript" "$sid")"
-
-  # Fake claude that "succeeds" (exit 0) but emits garbage that isn't valid
-  # JSON — simulates the truncated-output failure mode. The hook should
-  # detect this via jq -e and leave the synchronous regex-only fallback in
-  # place rather than overwriting it with the garbage.
-  fake_bin="$proj/bin"
-  mkdir -p "$fake_bin"
-  cat > "$fake_bin/claude" <<'EOF'
-#!/usr/bin/env bash
-printf 'this is not valid json {{{ truncated...'
-exit 0
-EOF
-  chmod +x "$fake_bin/claude"
-
-  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
-
-  out="$(find_raw_file "$proj" "$sid")"
-  if [ -z "$out" ]; then
-    printf '  FAIL: invalid-subagent: no raw file found\n'
-    TESTS_RUN=$((TESTS_RUN + 1))
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-    rm -rf "$proj"
-    return
-  fi
-
-  # Wait briefly for the backgrounded subshell to attempt enrichment + reject it.
-  i=0
-  while [ "$i" -lt 30 ]; do
-    [ ! -f "$out.tmp" ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-
-  fallback=$(jq -r '.fallback // empty' "$out" 2>/dev/null)
-  assert_eq "regex-only" "$fallback" "invalid-subagent: regex-only fallback retained on garbage output"
-  rm -rf "$proj"
-}
-
 test_chunking_produces_multiple_raw_files() {
   local proj transcript stdin sid count i
   proj="$(make_temp_project)"
@@ -309,71 +211,78 @@ test_chunking_produces_multiple_raw_files() {
   rm -rf "$proj"
 }
 
-test_subagent_receives_slice_path_not_full_transcript() {
-  local proj transcript stdin sid fake_bin captured fake_payload i
+test_slice_files_persist_for_enrich() {
+  # As of v1.3.0 the Stop hook does NOT spawn `claude -p`; subagent enrichment
+  # is deferred to scripts/punts-enrich.sh. Slice files must survive the hook
+  # so enrich can read them later.
+  local proj transcript stdin sid count
   proj="$(make_temp_project)"
   transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
-  sid="session-slice-001"
+  sid="session-persist-001"
   stdin="$(make_stdin "$transcript" "$sid")"
 
-  fake_bin="$proj/bin"
-  captured="$proj/captured-args.txt"
-  fake_payload="$proj/fake.json"
-  echo '[]' > "$fake_payload"
-  mkdir -p "$fake_bin"
-  cat > "$fake_bin/claude" <<EOF
-#!/usr/bin/env bash
-# Record the prompt arg so the test can assert on its content.
-printf '%s\n' "\$@" > "$captured"
-cat "$fake_payload"
-EOF
-  chmod +x "$fake_bin/claude"
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
-  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
-
-  # Wait for the backgrounded subshell to invoke fake claude.
-  i=0
-  while [ ! -f "$captured" ] && [ "$i" -lt 30 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-
+  count=$(ls "$proj"/.claude/punts/state/slice-"${sid}"-* 2>/dev/null | wc -l | tr -d ' ')
   TESTS_RUN=$((TESTS_RUN + 1))
-  if [ -f "$captured" ] && grep -q "slice-${sid}-" "$captured"; then
-    printf '  ok: subagent prompt references slice file (not full transcript)\n'
+  if [ "$count" -ge 1 ]; then
+    printf '  ok: persist: %d slice file(s) retained for enrich\n' "$count"
   else
-    printf '  FAIL: subagent prompt did not reference slice file\n'
-    [ -f "$captured" ] && printf '    captured: %s\n' "$(cat "$captured")"
+    printf '  FAIL: persist: no slice files retained — enrich would have nothing to read\n'
     TESTS_FAILED=$((TESTS_FAILED + 1))
   fi
   rm -rf "$proj"
 }
 
-test_slice_files_cleaned_up() {
-  local proj transcript stdin sid fake_bin fake_payload remaining i
+test_hook_does_not_spawn_claude() {
+  # Regression: v1.3.0 strips the subagent fork from the hook entirely. A fake
+  # claude that records its invocation should NEVER be called.
+  local proj transcript stdin sid fake_bin invocation_log
   proj="$(make_temp_project)"
   transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
-  sid="session-cleanup-001"
+  sid="session-no-claude-001"
   stdin="$(make_stdin "$transcript" "$sid")"
 
   fake_bin="$proj/bin"
-  fake_payload="$proj/fake.json"
-  echo '[]' > "$fake_payload"
-  install_fake_claude "$fake_bin" "$fake_payload"
+  invocation_log="$proj/claude-was-called.txt"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/claude" <<EOF
+#!/usr/bin/env bash
+echo "called" >> "$invocation_log"
+echo '[]'
+EOF
+  chmod +x "$fake_bin/claude"
 
   ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
-  # Wait up to 3s for the backgrounded subshell to finish and clean up slices.
-  i=0
-  while [ "$i" -lt 30 ]; do
-    remaining=$(ls "$proj"/.claude/punts/state/slice-"${sid}"-* 2>/dev/null | wc -l | tr -d ' ')
-    [ "$remaining" -eq 0 ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
+  # Tiny grace period in case some leftover background path tries to fire.
+  sleep 0.3
 
-  remaining=$(ls "$proj"/.claude/punts/state/slice-"${sid}"-* 2>/dev/null | wc -l | tr -d ' ')
-  assert_eq "0" "$remaining" "cleanup: slice files removed after subagent ran"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [ ! -f "$invocation_log" ]; then
+    printf '  ok: hook did not spawn claude\n'
+  else
+    printf '  FAIL: hook spawned claude (invocation_log exists)\n'
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -rf "$proj"
+}
+
+test_raw_file_embeds_session_id() {
+  # punts-enrich.sh recovers session_id from .session_id in the raw file
+  # (UUIDs contain dashes, so basename-parsing is fragile). The hook must
+  # embed it in every regex-only fallback row.
+  local proj transcript stdin sid out raw_sid
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  sid="session-embed-sid-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  out="$(find_raw_file "$proj" "$sid")"
+  raw_sid=$(jq -r '.session_id // empty' "$out" 2>/dev/null)
+  assert_eq "$sid" "$raw_sid" "raw file embeds session_id for enrich"
   rm -rf "$proj"
 }
 

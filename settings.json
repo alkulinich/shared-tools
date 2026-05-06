@@ -57,12 +57,14 @@
       "Bash(~/.claude/skills/rulez-claudeset/scripts/context-meter.sh:*)",
       "Bash(~/.claude/skills/rulez-claudeset/scripts/punts-detect.sh:*)",
       "Bash(~/.claude/skills/rulez-claudeset/scripts/punts-extract-prompt.sh:*)",
+      "Bash(~/.claude/skills/rulez-claudeset/scripts/punts-enrich.sh:*)",
 
       "Skill(rulez:test-pr)",
       "Skill(rulez:push-fixes)",
       "Skill(rulez:start-issue)",
       "Skill(rulez:create-pr)",
       "Skill(rulez:punts-triage)",
+      "Skill(rulez:punts-enrich)",
 
       "Bash(chmod:*)",
       "Bash(curl:*)",

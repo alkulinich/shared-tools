@@ -6,7 +6,21 @@ git-tracked).
 
 ## Instructions
 
-1. **List raw evidence files**
+1. **Enrich any regex-only evidence first**
+
+Stop hooks now capture only regex-only fallback rows; the subagent
+enrichment is deferred until triage. Run it before walking:
+
+```bash
+~/.claude/skills/rulez-claudeset/scripts/punts-enrich.sh
+```
+
+Briefly note the summary line to the user (`processed=N enriched=M ...`).
+If `enriched > 0`, the freshly-promoted files are now structured and
+ready to triage. If `failed > 0`, mention it but proceed — regex-only
+files can still be triaged on their fallback evidence.
+
+2. **List raw evidence files**
 
 ```bash
 ls -1t .claude/punts/raw/*.json 2>/dev/null
@@ -14,7 +28,7 @@ ls -1t .claude/punts/raw/*.json 2>/dev/null
 
 If the listing is empty, report `No untriaged punts.` and stop.
 
-2. **Walk each file (oldest first by mtime)**
+3. **Walk each file (oldest first by mtime)**
 
 For each `*.json` file, read it and iterate the array of evidence rows.
 
@@ -31,7 +45,7 @@ Then ask: **APPROVE / REJECT / SKIP / MERGE WITH `<existing>`**.
 Before APPROVE, check whether a `.claude/punts/*.md` already exists with a
 matching `id` (frontmatter). If so, offer MERGE instead.
 
-3. **APPROVE → write `.claude/punts/<slug>.md`**
+4. **APPROVE → write `.claude/punts/<slug>.md`**
 
 - Generate a kebab-case slug from `claim`, lowercase, ≤ 64 chars, hyphens only.
 - If `<slug>.md` already exists with a different id, append `-2`, `-3`, etc.
@@ -69,16 +83,16 @@ your own concise recommendation if they say "you decide">
 
 Then remove this row from the raw JSON file.
 
-4. **REJECT → drop the row**
+5. **REJECT → drop the row**
 
 Remove this row from the raw JSON file. (Rejection is transient — if the
 same `id` shows up in a future session, it will be re-presented.)
 
-5. **SKIP → leave the row**
+6. **SKIP → leave the row**
 
 Move on to the next row without modifying the raw JSON.
 
-6. **MERGE WITH `<existing>` → append to the existing `.md`**
+7. **MERGE WITH `<existing>` → append to the existing `.md`**
 
 Append a new evidence block to the existing `.md`:
 
@@ -92,7 +106,7 @@ Append a new evidence block to the existing `.md`:
 Update the `last_seen` date in the frontmatter to today, and append the
 session id to the `sessions:` array. Remove this row from the raw JSON.
 
-7. **Clean up empty raw files**
+8. **Clean up empty raw files**
 
 After processing each raw file, if its rows array is now empty, delete the
 file:
@@ -101,7 +115,7 @@ file:
 rm .claude/punts/raw/<file>.json
 ```
 
-8. **Final report**
+9. **Final report**
 
 Summarize: `N approved, M rejected, K skipped, P merged.`
 
