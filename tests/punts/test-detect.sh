@@ -2,15 +2,16 @@
 # Tests for scripts/punts-detect.sh.
 
 test_clean_transcript_writes_no_file() {
-  local proj transcript stdin out
+  local proj transcript stdin
   proj="$(make_temp_project)"
   transcript="$FIXTURES_DIR/transcript-clean.jsonl"
   stdin="$(make_stdin "$transcript" "session-clean-001")"
-  out="$proj/.claude/punts/raw/session-clean-001.json"
 
   ( cd "$proj" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
-  assert_file_absent "$out" "clean transcript: no raw JSON written"
+  local raw_count
+  raw_count=$(count_raw_files "$proj" "session-clean-001")
+  assert_eq "0" "$raw_count" "clean transcript: no raw JSON written"
   rm -rf "$proj"
 }
 
@@ -19,13 +20,13 @@ test_soft_phrase_writes_fallback() {
   proj="$(make_temp_project)"
   transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
   stdin="$(make_stdin "$transcript" "session-soft-001")"
-  out="$proj/.claude/punts/raw/session-soft-001.json"
 
   # Override PATH so claude binary is not found — exercises fallback path.
   ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
+  out="$(find_raw_file "$proj" "session-soft-001")"
   assert_file_exists "$out" "soft-phrase: regex fallback JSON written"
-  if [ -f "$out" ]; then
+  if [ -n "$out" ] && [ -f "$out" ]; then
     local fallback hits
     fallback=$(jq -r '.fallback // empty' "$out")
     assert_eq "regex-only" "$fallback" "soft-phrase: fallback field is regex-only"
@@ -43,12 +44,12 @@ test_marker_detected() {
   proj="$(make_temp_project)"
   transcript="$FIXTURES_DIR/transcript-marker.jsonl"
   stdin="$(make_stdin "$transcript" "session-marker-001")"
-  out="$proj/.claude/punts/raw/session-marker-001.json"
 
   ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
+  out="$(find_raw_file "$proj" "session-marker-001")"
   assert_file_exists "$out" "marker: regex fallback JSON written"
-  if [ -f "$out" ]; then
+  if [ -n "$out" ] && [ -f "$out" ]; then
     local hits
     hits=$(jq -r '.regex_hits // empty' "$out")
     case "$hits" in
@@ -64,7 +65,6 @@ test_subagent_writes_structured_json() {
   proj="$(make_temp_project)"
   transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
   stdin="$(make_stdin "$transcript" "session-subagent-001")"
-  out="$proj/.claude/punts/raw/session-subagent-001.json"
 
   # Fake claude binary that emits a structured evidence array (one row).
   fake_bin="$proj/bin"
@@ -90,22 +90,27 @@ EOF
 
   ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
-  # Subagent runs detached — wait up to 5s for the output file to appear.
-  if wait_for_file "$out" 5; then
-    printf '  ok: subagent: output file appeared within timeout\n'
-    TESTS_RUN=$((TESTS_RUN + 1))
-  else
-    printf '  FAIL: subagent: output file did not appear within 5s\n'
+  # The synchronous regex-only write makes the file appear immediately, then
+  # the backgrounded subagent overwrites it. Poll until the structured array
+  # shape lands instead of just waiting for file existence.
+  out="$(find_raw_file "$proj" "session-subagent-001")"
+  if [ -z "$out" ]; then
+    printf '  FAIL: subagent: raw file did not appear\n'
     TESTS_RUN=$((TESTS_RUN + 1))
     TESTS_FAILED=$((TESTS_FAILED + 1))
     rm -rf "$proj"
     return
   fi
 
-  local first_id
-  first_id=$(jq -r '.[0].id // empty' "$out")
-  assert_eq "0000000000000000000000000000000000000001" "$first_id" \
-    "subagent: structured JSON id passed through"
+  if wait_for_jq_value "$out" '.[0].id // empty' \
+       "0000000000000000000000000000000000000001" 5; then
+    printf '  ok: subagent: structured JSON id passed through\n'
+    TESTS_RUN=$((TESTS_RUN + 1))
+  else
+    printf '  FAIL: subagent: structured JSON id did not appear within 5s\n'
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
   rm -rf "$proj"
 }
 
@@ -120,4 +125,98 @@ test_prompt_contains_required_fields() {
       *) printf '  FAIL: prompt missing %s\n' "$field"; TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1)) ;;
     esac
   done
+}
+
+test_offset_state_written_after_run() {
+  local proj transcript stdin sid expected actual
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  sid="session-offset-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  expected=$(wc -c < "$transcript" | tr -d ' ')
+  actual="$(read_offset "$proj/.claude/punts/state/${sid}.offset")"
+  assert_eq "$expected" "$actual" "offset state: equals transcript byte size after run"
+  rm -rf "$proj"
+}
+
+test_no_new_bytes_writes_nothing() {
+  local proj transcript stdin sid before after offset_before offset_after
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  sid="session-idempotent-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  # First run captures hits and advances offset.
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  before=$(count_raw_files "$proj" "$sid")
+  offset_before="$(read_offset "$proj/.claude/punts/state/${sid}.offset")"
+
+  # Second run with no new bytes — must produce no additional file.
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  after=$(count_raw_files "$proj" "$sid")
+  offset_after="$(read_offset "$proj/.claude/punts/state/${sid}.offset")"
+
+  assert_eq "$before" "$after" "idempotent: second run wrote no new raw file"
+  assert_eq "$offset_before" "$offset_after" "idempotent: offset unchanged on no-new-bytes run"
+  rm -rf "$proj"
+}
+
+test_new_bytes_written_only_for_new_window() {
+  local proj transcript stdin sid first_count second_count out hits
+  proj="$(make_temp_project)"
+  sid="session-incremental-001"
+
+  # Copy the clean (no-hits) fixture into a writable transcript.
+  transcript="$proj/transcript.jsonl"
+  cat "$FIXTURES_DIR/transcript-clean.jsonl" > "$transcript"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  # First run: clean fixture, no hits, offset advances to file size.
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  first_count=$(count_raw_files "$proj" "$sid")
+  assert_eq "0" "$first_count" "incremental: first (clean) run wrote no raw file"
+
+  # Append a new assistant message containing a punt phrase.
+  printf '{"type":"assistant","message":{"content":"the auth code is pre-existing, leaving it for later"}}\n' >> "$transcript"
+
+  # Second run: only the new line should be screened.
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  second_count=$(count_raw_files "$proj" "$sid")
+  assert_eq "1" "$second_count" "incremental: second run wrote exactly one new raw file"
+
+  out="$(find_raw_file "$proj" "$sid")"
+  if [ -n "$out" ] && [ -f "$out" ]; then
+    hits=$(jq -r '.regex_hits // empty' "$out")
+    case "$hits" in
+      *pre-existing*) printf '  ok: incremental: new hit captured\n'; TESTS_RUN=$((TESTS_RUN + 1)) ;;
+      *) printf '  FAIL: incremental: new hit missing from regex_hits\n'; TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1)) ;;
+    esac
+  fi
+  rm -rf "$proj"
+}
+
+test_shrinkage_resets_offset() {
+  local proj transcript stdin sid expected actual out
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-marker.jsonl"
+  sid="session-shrink-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  # Pre-write an offset larger than the transcript to simulate compaction
+  # (transcript was rewritten and is now smaller than what we previously saw).
+  mkdir -p "$proj/.claude/punts/state"
+  echo 999999999 > "$proj/.claude/punts/state/${sid}.offset"
+
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  expected=$(wc -c < "$transcript" | tr -d ' ')
+  actual="$(read_offset "$proj/.claude/punts/state/${sid}.offset")"
+  assert_eq "$expected" "$actual" "shrinkage: offset reset to actual transcript size"
+
+  out="$(find_raw_file "$proj" "$sid")"
+  assert_file_exists "$out" "shrinkage: raw file written after reset"
+  rm -rf "$proj"
 }

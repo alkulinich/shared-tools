@@ -59,6 +59,54 @@ wait_for_file() {
   [ -f "$path" ]
 }
 
+# Wait until `jq -r <expr> <path>` returns <expected>, polling every 100ms.
+# Used in place of wait_for_file when the file is overwritten asynchronously
+# (the synchronous regex-only fallback exists immediately, but the subagent
+# overwrite is what we actually want to assert against).
+# Args: <path> <jq_expr> <expected> <timeout_secs>
+wait_for_jq_value() {
+  local path="$1"
+  local jq_expr="$2"
+  local expected="$3"
+  local timeout_secs="${4:-5}"
+  local max_iters=$((timeout_secs * 10))
+  local iters=0 actual=""
+  while [ "$iters" -lt "$max_iters" ]; do
+    if [ -f "$path" ]; then
+      actual=$(jq -r "$jq_expr" "$path" 2>/dev/null || echo "")
+      [ "$actual" = "$expected" ] && return 0
+    fi
+    sleep 0.1
+    iters=$((iters + 1))
+  done
+  return 1
+}
+
+# Read the integer byte-offset stored in <state_file>; echoes 0 if absent.
+read_offset() {
+  local state_file="$1"
+  if [ -f "$state_file" ]; then
+    cat "$state_file"
+  else
+    echo 0
+  fi
+}
+
+# Count *.json files in a project's raw punt dir for a given session_id prefix.
+# Args: <proj_dir> <session_id>
+count_raw_files() {
+  local proj="$1"
+  local sid="$2"
+  ls "$proj"/.claude/punts/raw/"$sid"-*.json 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Echo the path to the (assumed unique) raw file for <session_id>, or empty.
+find_raw_file() {
+  local proj="$1"
+  local sid="$2"
+  ls "$proj"/.claude/punts/raw/"$sid"-*.json 2>/dev/null | head -n1
+}
+
 assert_eq() {
   local expected="$1"
   local actual="$2"
