@@ -1,0 +1,2 @@
+{"type":"user","message":{"content":"add a feature"}}
+{"type":"assistant","message":{"content":"Done. The implementation passes all tests."}}
