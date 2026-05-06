@@ -2,106 +2,101 @@
 
 ## Task
 
-User noticed Claude Code routinely flagging issues as "pre-existing" or "out of scope" and walking past them — a Reddit thread (r/ClaudeCode `1t49tqo`) confirmed this is widespread. Goal: capture every genuine punt with enough evidence to triage later, without dampening Claude's healthy scope discipline. Brainstormed → spec'd → planned → implemented → shipped as v1.2.0 in a single session.
+Make the punt-detection Stop hook viable on long-running sessions. The v1.2.0 implementation worked for fresh sessions but had three latent failure modes that surfaced this session: (1) full-transcript re-screen on every Stop fire, (2) subagent context overflow on multi-megabyte transcripts, (3) silent acceptance of truncated/malformed `claude -p` output. Plus a small clarity gap: the prompt builder still talked about "the transcript" after we switched to slice files. Resolved across four patch releases (v1.2.1 → v1.2.4).
 
 ## Current State
 
-- **Branch:** `main`, synced with `origin/main` (pushed during Task 12).
-- **Released as v1.2.0.** Global install at `~/.claude/skills/rulez-claudeset/` is at v1.2.0. `/rulez:punts-triage` is registered and visible in the live skills list.
-- **All 13 unit tests passing** (`bash tests/punts/run-tests.sh`).
-- **Commits this session, newest first (15 total including spec/plan):**
-  - `8a38250 chore: release v1.2.0`
-  - `7962dd2 feat: bin/setup merges Stop hook for punts detection`
-  - `0a3094f feat: ship Stop hook + punts permissions in settings template`
-  - `0ad863a feat: /rulez:punts-triage slash command`
-  - `51d8e63 feat: document [PUNT]: marker convention in RULEZ.md`
-  - `e1e027f feat: build real subagent prompt with full evidence schema`
-  - `4a6a544 feat: fork claude -p subagent for structured punt evidence`
-  - `1cfae45 fix: emit raw text in regex_hits, not double-quoted JSON`  ← reviewer catch
-  - `e6c3049 feat: also detect explicit [PUNT]: marker lines`
-  - `b86a46c feat: detect soft-phrase punts and write regex fallback JSON`
-  - `0330fef feat: punts-detect.sh — clean-transcript path`
-  - `6c46dc3 test: fix wait_for_file timer semantics`               ← reviewer catch
-  - `8d2ba8f test: scaffold punts test runner`
-  - `62d754d docs: implementation plan for punt detection (v1.2.0)`
-  - `9345658 docs: spec for punt detection and triage (v1.2.0)`
-- **Files created:**
-  - `scripts/punts-detect.sh` — Stop hook entry point. Regex-screens the transcript for `[PUNT]:` marker or soft phrases (`pre-existing`, `out of scope`, `unrelated to`, etc.), forks `claude -p` backgrounded if available, falls back to writing raw regex hits otherwise. Writes to `.claude/punts/raw/<session-uuid>.json` atomically (`.tmp` + `mv`).
-  - `scripts/punts-extract-prompt.sh` — Builds the prompt fed to `claude -p`. Pure stdout. Specifies the full JSON evidence schema (id, session_id, session_ended_at, branch, evidence_quote, context_quote, claim, files_mentioned, regex_hit, source, subagent_confidence) and the marker-vs-regex confidence rubric.
-  - `commands/rulez/punts-triage.md` — `/rulez:punts-triage` slash command. Walks `.claude/punts/raw/*.json` interactively. APPROVE/REJECT/SKIP/MERGE per evidence row. APPROVE writes `.claude/punts/<slug>.md` (one issue per file, git-tracked). MERGE handles dedup when the same `id` (SHA-1 of claim) resurfaces across sessions.
-  - `tests/punts/run-tests.sh` + `helpers.sh` — minimal bash test framework. mktemp project isolation, fake `claude` binary, atomic assertions.
-  - `tests/punts/test-detect.sh` — 4 test functions (clean / soft-phrase / marker / subagent) producing 13 assertions.
-  - `tests/punts/fixtures/transcript-{clean,soft-phrase,marker}.jsonl` — JSONL test inputs.
-  - `docs/superpowers/specs/2026-05-06-punt-detection-design.md` — design spec (commit `9345658`).
-  - `docs/superpowers/plans/2026-05-06-punt-detection.md` — implementation plan (commit `62d754d`).
-- **Files modified:**
-  - `RULEZ.md` — appended `## Punts` section instructing Claude to flag out-of-scope decisions as `[PUNT]: <reason>`.
-  - `settings.json` — added Stop hook to `.hooks.Stop`, `Bash(...punts-*.sh:*)` permissions, `Skill(rulez:punts-triage)` permission.
-  - `bin/setup` — added Stop-hook merge block mirroring the existing SessionStart-hook merge logic. Idempotent across reinstalls.
-  - `VERSION` — `1.1.4` → `1.2.0`.
-  - `UPGRADE.md` — new `## To v1.2.0 — from v1.1.4` section at top, with What's new / Project-level housekeeping / Disabling subsections.
+- **Branch:** `main`, in sync with `origin/main`.
+- **Released as v1.2.4.** Global install at `~/.claude/skills/rulez-claudeset/` is at v1.2.4 (verified via the final `/rulez:update-claudeset` invocation).
+- **Tests:** `bash tests/punts/run-tests.sh` — 24/24 pass. Test count grew across releases: 16 (v1.2.0) → 20 (v1.2.1) → 23 (v1.2.2) → 24 (v1.2.4).
+- **Files modified this session** (cumulatively across the four releases):
+  - `scripts/punts-detect.sh` — incremental offset, slice + chunk, JSON validation.
+  - `scripts/punts-extract-prompt.sh` — variable rename + slice-aware wording.
+  - `tests/punts/helpers.sh` — `read_offset`, `wait_for_jq_value`, `count_raw_files`, `find_raw_file`.
+  - `tests/punts/test-detect.sh` — 8 new test functions.
+  - `VERSION` — 1.2.0 → 1.2.4.
+  - `UPGRADE.md` — four new sections at top.
+- **Untracked:** `tmp/` (pre-existing, not part of this work).
 
 ## What Worked
 
-**Brainstorming (4 questions, ~15 minutes).**
-- Q1: regex vs subagent vs both → user picked **C: regex-gated subagent** (cheap default, escalate when there's signal).
-- Q2: per-session JSON file `.claude/punts/raw/<uuid>.json` (gitignored) → curated `.claude/punts/<slug>.md` (git-tracked) → user approved.
-- Q3: triage trigger → user picked **B: dedicated `/rulez:punts-triage` slash command** (discoverable, reproducible).
-- Q4: `[PUNT]:` self-tag in RULEZ.md → user initially picked skip, then **flipped to soft hint** ("may mark places our regexp yet not ready for"). Locked in defense-in-depth.
+### v1.2.1 — Byte-offset checkpoint (commits `6ae3543` + `0702125`)
 
-**Spec → plan → execute → ship pipeline.**
-- Spec at `docs/superpowers/specs/2026-05-06-punt-detection-design.md` (commit `9345658`) — full architecture, schema, edge cases, deferred items.
-- Plan at `docs/superpowers/plans/2026-05-06-punt-detection.md` (commit `62d754d`) — 12 sequential TDD-shaped tasks with complete code blocks and exact commands.
-- Subagent-driven execution: each task got an implementer subagent (haiku for mechanical, sonnet for Task 5 process management), then a spec compliance reviewer, then a code quality reviewer (`superpowers:code-reviewer`).
+- Brainstormed 5 options (byte offset / line count / UUID marker / tail-N / latest-turn-only); user picked Shape A (per-run files) + Option 1 (byte offset).
+- Plan written to `/Users/rulez/.claude/plans/declarative-wiggling-ritchie.md`, approved via ExitPlanMode.
+- State file at `.claude/punts/state/<sid>.offset` (single integer). Shrinkage detection for compaction. Atomic write via `.tmp` + `mv`. Filename suffix uses `new_offset` zero-padded + `$$` PID.
+- Synchronous regex-only fallback written before subagent fork — lost-evidence guarantee.
+- Tests added: `test_offset_state_written_after_run`, `test_no_new_bytes_writes_nothing`, `test_new_bytes_written_only_for_new_window`, `test_shrinkage_resets_offset`.
 
-**Reviewer catches that prevented real bugs from shipping.**
-1. **`wait_for_file` timer bug** (Task 1 review) — function incremented its counter by 1 per 100ms sleep but compared against `timeout_secs` directly, so `wait_for_file out 5` waited 0.5s instead of 5s. Fixed in `6c46dc3` by converting to `max_iters = timeout_secs * 10`. Verified `wait_for_file /nonexistent 1` now waits 1s real-time.
-2. **Double-quoted JSON in `regex_hits`** (Task 4 review) — pipeline used `jq -c` to extract `.message.content`, which keeps JSON encoding (surrounding quotes), then handed to `jq -n --arg hits "$hits"` which JSON-encoded it again. The on-disk JSON had `"regex_hits": "\"Done with...\""` — double-quoted. Tests passed only because they unquoted once via `jq -r '.regex_hits'`. Fixed in `1cfae45` by switching to `jq -r` so the captured lines are plain text.
-3. **Latent PATH-scoping bug in tests** (Task 5 implementer self-correction) — pre-existing tests used `PATH="/usr/bin:/bin" printf '%s' "$stdin" | bash punts-detect.sh`, which only sets PATH for `printf`, not the piped `bash`. Worked before Task 5 because the script never checked PATH. After Task 5 introduced `command -v claude`, this would have been a flaky test. Implementer correctly switched all three tests to `export PATH=... && printf | bash` inside the subshell.
+### v1.2.2 — Slice + chunk (commits `11aee68` + `84700bf`)
 
-**Live install verification.**
-After `git push origin main` + `git -C ~/.claude/skills/rulez-claudeset pull --ff-only` + `bin/setup -q`:
-- `~/.claude/skills/rulez-claudeset/VERSION` = `1.2.0`
-- Both new scripts present at `~/.claude/skills/rulez-claudeset/scripts/punts-*.sh`
-- `~/.claude/commands/rulez/punts-triage.md` reachable via symlink (3.0K)
-- `~/.claude/settings.json` `.hooks.Stop` populated with the rulez-claudeset entry
-- `rulez:punts-triage` appeared in the live skills list mid-session, confirming end-to-end registration
+- User reported the real failure: a 5.5 MB / 382-match transcript blew the subagent's context. Diagnosis: even after v1.2.1, the prompt still said "Read the transcript at $transcript_path" — the FULL file. Slicing solved steady-state; chunking solved the backlog/single-pathological-turn case.
+- Plan: slice the new byte window to `.claude/punts/state/slice-<sid>-<chunk_end>-<pid>.jsonl` with 4 KB lookback; chunk windows > `PUNT_MAX_CHUNK` (default 256 KB); fan out one detached `claude -p` per chunk, **serial within a single backgrounded subshell** (cost is fine but rate limits aren't).
+- Subtle bug caught and fixed mid-implementation: with `LOOKBACK > chunk_start`, the slice for chunk N+ would overlap chunk 0's content and the per-chunk regex screen would double-count. Solution: separate read for the slice (with lookback) vs. per-chunk regex screen (chunk-only bytes).
+- Second subtle bug: `tail -n +2` was wrongly dropping the first whole line when `chunk_start` happened to land on a line boundary (the steady-state case where `stored_offset = end-of-line`). Solution: `read_window` helper with prev-byte check — leverages bash's command-substitution-strips-trailing-newlines so an empty `prev` means the prior byte was `\n`.
+- Tests added: `test_chunking_produces_multiple_raw_files`, `test_subagent_receives_slice_path_not_full_transcript`, `test_slice_files_cleaned_up`. Existing `test_subagent_writes_structured_json` updated to use `wait_for_jq_value` (poll for the structured shape, not just file existence — synchronous fallback now writes the file before subagent overwrites).
 
-**Commit-message-via-tempfile pattern locked in for the third release in a row.**
-Every implementation task wrote its message to `/tmp/cc-msg-task<N>.txt` via `printf`/Write and used `git commit -F`. Zero heredoc failures across 14 commits.
+### v1.2.3 — Prompt-builder clarity (commits `dd4a591` + `936165e`)
+
+- After v1.2.2 the prompt builder still called its arg `transcript_path` and told the subagent to "Read the transcript at …" even though it was now receiving a chunk slice. Subagent could over-rate confidence on phrases that look new because it doesn't know the bytes before the slice are intentionally clipped.
+- Renamed `transcript_path` → `slice_path`. Reworded the prompt to "Read the transcript slice at …" + a sentence about the byte-range scope. Annotated `session_ended_at` to note it's the Stop-hook fire time, not original message wall-clock (matters during backlog drains).
+- Pure cosmetic — schema unchanged, all 23 tests green without modification (the rename is positional-arg-transparent).
+
+### v1.2.4 — JSON validation (commits `c97bff8` + `51e61ef`)
+
+- User asked "should we add check of the data returned by spawned claude? at least is it valid json?". Answer: yes. A 0 exit with truncated stdout is the failure mode that bit them on the 5 MB session pre-v1.2.2 — exit code says success, but the file on disk is garbage that triage can't parse.
+- One-line fix: chain `&& jq -e . "$out_file.tmp" >/dev/null 2>&1` after the `claude -p` invocation. On parse failure, `rm -f $out_file.tmp` and the synchronous regex-only fallback survives.
+- Test added: `test_invalid_subagent_output_falls_back_to_regex` — fake claude that exits 0 but emits `this is not valid json {{{`; assertion verifies `.fallback == "regex-only"` survives.
+
+### Process notes
+
+- All four releases used the established two-commit pattern: `feat`/`fix`/`perf`/`docs` + separate `chore: release vX.Y.Z`. Clean bisect.
+- Commit messages all written via `Write` tool to `/tmp/cc-msg-*.txt` then `git commit -F` — sidesteps the heredoc-quoting bug from prior sessions.
+- After each release: `git push origin main` → `git -C ~/.claude/skills/rulez-claudeset pull --ff-only` → `bin/setup -q` → verify VERSION bump.
 
 ## What Didn't Work
 
-- **First attempt at the spec did not include `source: "marker" | "regex"` field on the evidence row.** Caught during brainstorming Q4 flip — user changed mind on the marker convention, which made `source` necessary so triage can sort by reliability. Spec was updated before commit.
-- **Subagent-driven-development skill expects `SendMessage` to address implementer subagents by name.** Implementer dispatch returned only a UUID (`agentId: a633...`); `SendMessage` warns against using UUIDs. So the recommended "implementer fixes their own work after review" loop was not followed — instead, fix-up commits were made inline by the controller (Tasks 1 and 4). Outcome was identical; pattern is fine for trivial fixes but for larger fixes the controller should pre-name the agent (`name: "implementer-task-N"`) when dispatching.
-- **Plan's Task 8 nested-fences concern was a false positive.** The plan flagged that the slash command's nested ` ```markdown ` blocks inside an outer triple-backtick block could break rendering. The implementer used standard triple backticks throughout, which works fine in Claude's markdown reader (verified by counting fences: 8 = 4 pairs).
-- **Implementer's truncated `head -50` output of UPGRADE.md showed "### Project-level housekeeping" twice**, which looked like a duplicate section bug. False alarm — actual file inspection confirmed only one section exists; the duplicate in the report was an artifact of where the implementer's report cut off and replayed.
+- **`tail -n +2` everywhere bug** — initially I applied it unconditionally to drop "partial first line" of mid-stream byte windows. Broke `test_new_bytes_written_only_for_new_window` because in steady state `chunk_start` IS a line boundary (post-incremental, `stored_offset` is always `wc -c` = end of file = end of line). The dropped-first-line was actually a whole new line containing the punt phrase. Fixed by introducing `read_window` helper that checks the prev byte before deciding whether to trim.
+
+- **Test infrastructure noise: `Killed: 9` lines in test output** during v1.2.4. Backgrounded fake-claude processes from one test getting cleaned up after the next test starts. Pre-existing race — tests still all pass; ignored as noise. [PUNT]: improve test cleanup to wait on backgrounded subshells before tearing down `$proj`.
+
+- **Pre-existing wrapper-vs-bare-array shape mismatch** still unresolved. `claude -p --output-format json` returns a wrapper `{"type":"result","result":"<json string>",...}` but the triage command (`commands/rulez/punts-triage.md`) reads files as if they were the bare array. Tests bypass the wrapper via fake claude binaries that emit bare arrays directly, so the bug is masked. [PUNT]: not addressed in this session — separate change, separate release. Tier-3 JSON validation (`.result | fromjson | type == "array"`) was deliberately skipped in v1.2.4 for the same reason.
 
 ## Next Steps
 
-Ordered by priority.
+1. **Live smoke-test v1.2.4 end-to-end** — end an active session that includes punt phrasing in this very repo. Inspect `<repo>/.claude/punts/state/<sid>.offset` (matches `wc -c < transcript`?), `<repo>/.claude/punts/raw/<sid>-*-*.json` (correct shape? per-chunk if window was big?), and `<repo>/.claude/punts/state/slice-*` (should be empty after subshell finishes).
 
-1. **Live smoke-test the Stop hook.** End this session and check whether `<project>/.claude/punts/raw/<session-uuid>.json` is written. Specifically: in any session where the assistant emits a phrase like "the auth bug is pre-existing — leaving it" or `[PUNT]: <something>`, the hook should fire on session end. **This is the single most important verification that didn't happen in-session** because the Stop hook only runs at session termination.
-2. **Verify the subagent path actually works with real `claude -p`.** The fake-claude tests confirm the fork plumbing works, but the real `claude -p` invocation against a real transcript is unverified. First real session ending with a punt phrase will exercise this. If the subagent emits malformed JSON, `<session>.json.tmp` will be left orphaned in `.claude/punts/raw/` (acceptable per spec, but worth a peek).
-3. **Try `/rulez:punts-triage` on accumulated raw evidence.** After step 1 produces some raw JSON, run the slash command and walk through the evidence. Sanity-check the APPROVE → `<slug>.md` flow and the MERGE flow (the latter requires the same `id` to appear in two raw files).
-4. **Project-level `.gitignore` adjustment for consuming projects.** UPGRADE.md documents the recommended pattern (`.claude/*` + `!.claude/punts/` + `.claude/punts/raw/`) but does not auto-apply it. If a consuming project wants to track curated `.md` files in git, the user has to make this change manually per project. **This rulez-claudeset repo itself ignores `.claude/` wholesale and does not run user sessions, so this is a downstream concern only.**
-5. **Carryovers from prior sessions, still outstanding** (deferred to future releases, NOT in v1.2.0):
-   - Add failure marker to `bin/auto-update.sh` — write `"auto-update failed: <reason>"` to `$MARKER_FILE` on fetch/pull failure so silent skips become visible.
-   - Harden `scripts/set-current-command.sh` — prepend `mkdir -p .claude` before the redirect.
-   - Smoke-test `/rulez:todo` end-to-end (`/rulez:todo buy milk` → `ls` → `done 1` → `archive`).
-   - Smoke-test `/effort max` chip rendering — confirm magenta MAX chip appears between model and session time.
-6. **Watch upstream behavior** — if Claude Code starts exposing the auto-compact threshold in statusLine JSON, switch the v1.1.4 hardcoded `400000` to dynamic. Tracked at [claude-code#43989](https://github.com/anthropics/claude-code/issues/43989). (Carried from v1.1.4 handoff.)
+2. **Try `/rulez:punts-triage`** on accumulated raw evidence (this session may have produced some via the live hook). Will surface the wrapper-vs-bare-array bug if real `claude -p` was actually invoked.
+
+3. **Reconcile the wrapper-vs-bare-array shape** ([PUNT] above) — either:
+   - update `punts-detect.sh` to unwrap `.result` and write the bare array, or
+   - update `commands/rulez/punts-triage.md` (and tests' fake-claude payloads) to expect the wrapper.
+
+   Probably the former — keeps the on-disk shape simple and triage doesn't need to know about claude-p internals. Would also enable tier-2/3 JSON validation in detect.sh.
+
+4. **Test cleanup race** ([PUNT] above) — backgrounded subshells in tests should be awaited before `rm -rf $proj`. Cosmetic noise; low priority.
+
+5. **Carryovers from prior sessions** (still relevant):
+   - auto-update.sh failure marker hardening
+   - set-current-command.sh hardening
+   - `/rulez:todo` smoke test
+   - `/effort max` chip smoke test
+   - watch claude-code#43989 for `auto_compact_threshold` exposure (would replace the hardcoded 400k in `scripts/statusline.sh`).
 
 ## Key Decisions
 
-- **Direct-to-main commits, no feature branch.** Skill said "Never start implementation on main without explicit user consent" — user implicitly consented by approving a plan written for main and explicitly choosing the subagent-driven option. Project's release pattern (v1.1.3, v1.1.4) is also direct-to-main. Each commit is reversible. No regrets.
-- **Hardcoded fallback when `claude` is missing, not failure.** When `command -v claude` returns nothing, the hook falls back to writing the raw regex hits as `{"regex_hits": "...", "fallback": "regex-only"}`. Spec emphasized "evidence is never lost." This is also what makes the test suite green without requiring the real `claude` CLI to be on PATH during testing.
-- **Soft `[PUNT]:` marker, not primary path.** Q4 user flip: marker is documented in RULEZ.md as a *preference*, not a requirement. The regex catches both marker and un-marked phrasing. The subagent's confidence rubric: marker-derived → `high`, regex-with-file → `medium`, regex-without-file → `low`. This means a model that forgets to self-tag still gets caught, just at lower confidence.
-- **REJECT is transient, not persisted.** When the user rejects a punt during triage, the row is dropped from raw JSON. If the same `id` (SHA-1 of claim) resurfaces in a future session, it will be re-presented. Trade-off vs. a persistent rejection log: simpler, lower clutter, accepts the cost of re-rejecting the same item. Documented in spec edge-case table; revisitable if it becomes a friction point.
-- **Per-session JSON files (Layout B), not append-only single file (A) or JSONL (C).** Sidesteps concurrent-write corruption when multiple Claude sessions on the same project end at similar times. Each session writes its own `<uuid>.json`, no locks needed. Idempotent: SHA-1-of-claim ids let triage dedupe across sessions.
-- **`id` = SHA-1 of `claim` ONLY, not `claim + session_id`.** Original spec draft used `(claim + session_id)`, which is per-session unique. Self-corrected during spec write to `claim`-only so the same finding across multiple sessions has the same id, enabling triage-time dedup via MERGE.
-- **Atomic write via `.tmp` + `mv` for the success path; direct write for the fallback.** When the subagent succeeds, output goes through `.tmp` then `mv "$out.tmp" "$out"`. When subagent fails, fallback writes `"$out"` directly (NOT through `.tmp`), so concurrent readers see a consistent fallback shape. The `.tmp` may be orphaned on partial-write subagent failure — accepted per spec ("`.tmp` left behind; doesn't pollute `.json`").
-- **Two-commit release pattern (mostly).** Implementation tasks committed individually (12 commits) for bisect-friendliness, then a single `chore: release v1.2.0` commit for VERSION + UPGRADE.md. This is more granular than v1.1.4's 2-commit pattern but matches the project's spirit of "isolate the release commit." Plan's Task 11 was the single release commit.
-- **Skipped formal subagent reviews for Tasks 7, 8, 9, 11.** These were trivial doc/JSON/markdown changes with mechanical pass/fail (jq syntax check, markdown fence count). Self-verified by the controller. Tasks 1-6 and 10 (the bash logic) got the full review pipeline. Trade-off: discipline rigor vs. token economy. Acceptable when the change is a pure config edit with structural validation.
-- **Used Write-to-tempfile + `git commit -F` for ALL commits, including the implementer subagents'.** Heredoc-quoting bug has now bit this repo on three different sessions. Pattern is locked in: write the commit message via the Write tool to `/tmp/cc-msg-*.txt`, then `git commit -F`. Subagents follow this instruction in their prompt.
-- **Sonnet for Task 5 only, haiku for everything else.** Task 5 involved process management (`& disown`, `set -e` interaction with subshells, fake-claude PATH override). The implementer caught and fixed the latent PATH-scoping bug, which haiku might have missed. All other tasks were mechanical enough that haiku handled them at lower cost.
+- **Shape A + byte offset** (over JSONL append, per-claim sharding, line-count, etc.). Simpler to reason about, no merge logic, dedup happens at triage time by claim `id` (sha1).
+
+- **Serial within a single detached subshell** for chunk fan-out (vs. parallel-with-cap). User said "I don't care about costs" — but rate limits ≠ costs. A 22-chunk parallel storm would 429-burst all chunks simultaneously, defeating the point. Serial inside `( ... ) & disown` keeps the UI unblocked AND avoids the storm.
+
+- **Validate JSON, don't validate shape** (tier 1, not tier 3). The `.result | fromjson | type == "array"` check would have failed in production where the real wrapper exists, while passing in tests where fakes emit bare arrays. Catch the most likely failure (truncation) without committing to either shape.
+
+- **Per-chunk regex screen restricted to chunk's own bytes**, never lookback. Otherwise hits inside the lookback would be double-counted by both the current and previous chunk's screens.
+
+- **State advance happens before the subagent fork**. Subagent runs detached; we can't wait on it. Persisting offset eagerly means subagent failure costs us evidence enrichment, but the synchronous regex-only fallback already on disk preserves the hits themselves.
+
+- **Two-commit release pattern preserved** across all four releases — `fix`/`perf`/`docs` then `chore: release`. Bisect-friendly.
+
+- **`PUNT_MAX_CHUNK` and `PUNT_LOOKBACK` exposed as env vars** — not just for tuning, but because tests need to lower MAX_CHUNK to exercise multi-chunk paths without generating multi-MB fixtures.
+
+- **Tier-3 validation deferred, not skipped forever** — when (3) above is resolved, revisit `jq -e '.result | fromjson | type == "array"'` to catch wrapper-with-non-array result content.
