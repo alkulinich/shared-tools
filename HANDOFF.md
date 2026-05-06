@@ -2,121 +2,160 @@
 
 ## Task
 
-Make the punt-detection Stop hook viable on long-running sessions, then split the pipeline so the hook is purely synchronous and subagent enrichment runs on demand. Cumulatively shipped v1.2.1 through v1.3.0 across two sessions; this handoff documents the second session, which delivered the SIGPIPE fix (v1.2.5) and the architectural refactor (v1.3.0).
+Two patches on top of v1.3.0:
+
+1. **v1.3.1** — migrate `/rulez:punts-triage`'s enrichment step from
+   shelling out to `scripts/punts-enrich.sh` (which loops `claude -p`
+   per slice) to dispatching the in-session **Agent (Task) tool**, one
+   Agent per slice, in parallel batches of up to 8. The script path
+   stays around for batch / non-interactive back-fills.
+2. **v1.3.2** — small UX tweak to `/rulez:handoff`: end the assistant's
+   reply with a literal nudge telling the user to run `/compact` so the
+   now-stale conversation context can be freed.
 
 ## Current State
 
-- **Branch:** `main`, in sync with `origin/main`.
-- **Released as v1.3.0.** Global install at `~/.claude/skills/rulez-claudeset/` is at v1.3.0 (verified after the final pull/setup).
-- **Tests:** `bash tests/punts/run-tests.sh` — 34/34 pass.
-- **Files modified this session (v1.2.5 + v1.3.0 combined):**
-  - `scripts/punts-detect.sh` — SIGPIPE fix (`|| true`), then refactor to remove subagent fork.
-  - `scripts/punts-enrich.sh` — **new** — deferred-enrichment script.
-  - `scripts/punts-extract-prompt.sh` — unchanged this session (carried forward from v1.2.3).
-  - `commands/rulez/punts-triage.md` — auto-invokes enrich, renumbered steps 2–9.
-  - `commands/rulez/punts-enrich.md` — **new** — manual enrich slash command.
-  - `settings.json` — added `Bash(...punts-enrich.sh:*)` and `Skill(rulez:punts-enrich)`.
-  - `tests/punts/test-detect.sh` — added SIGPIPE test, removed three subagent tests, added three new hook-only tests.
-  - `tests/punts/test-enrich.sh` — **new** — 5 tests covering the enrich script.
-  - `tests/punts/helpers.sh` — unchanged.
-  - `VERSION` — 1.2.4 → 1.2.5 → 1.3.0.
-  - `UPGRADE.md` — two new top sections.
-- **Untracked:** `tmp/` (pre-existing, not part of this work).
+- Branch: `main`, in sync with `origin/main` (everything pushed).
+- Working tree: only `tmp/` untracked; no uncommitted edits aside from
+  this HANDOFF.md.
+- VERSION: `1.3.2`.
+- Tests: `bash tests/punts/run-tests.sh` → **34/34 pass**.
+- Global install at `~/.claude/skills/rulez-claudeset/` is on **1.3.2**
+  (pulled, `bin/setup -q` re-ran successfully).
+
+Recent commit chain (top of `git log --oneline`):
+
+```
+chore: release v1.3.2
+feat: handoff command nudges user to /compact after committing
+b5c7488 chore: release v1.3.1
+d9601f0 refactor: triage enriches via Agent tool, not claude -p script
+bfb1e1b docs: handoff — Make the punt-detection Stop hook viable …
+e0bc76c chore: release v1.3.0
+```
+
+Files touched this session:
+
+- `commands/rulez/punts-triage.md` — step 1 fully rewritten to use the
+  Agent tool with parallel dispatches and JSON validation.
+- `commands/rulez/handoff.md` — added step 5 (the `/compact` nudge).
+- `UPGRADE.md` — two new top sections (v1.3.2, v1.3.1).
+- `VERSION` — `1.3.0` → `1.3.1` → `1.3.2`.
 
 ## What Worked
 
-### v1.2.5 — SIGPIPE fix (commits `c11ce1d` + `c4683c6`, both same release)
+### v1.3.1 ship sequence
 
-Wait, let me check — `git log --oneline -10` would tell me real commit SHAs. Skipping exact SHAs; the messages start with `fix: tolerate SIGPIPE...` and `chore: release v1.2.5`.
+- Re-grounded in the v1.3.0 reality first (read
+  `commands/rulez/punts-triage.md`, `scripts/punts-enrich.sh`,
+  `scripts/punts-extract-prompt.sh`, current UPGRADE.md, recent commits).
+- Confirmed baseline 34/34 tests passed before edits.
+- Rewrote step 1 of `commands/rulez/punts-triage.md` end-to-end:
+  - List `.claude/punts/raw/*.json` filtered by
+    `.fallback == "regex-only"`.
+  - For each, locate slice at
+    `.claude/punts/state/slice-<basename>.jsonl`.
+  - Read `session_id` and `regex_hits` via `jq -r`.
+  - Build the prompt by running
+    `bash ~/.claude/skills/rulez-claudeset/scripts/punts-extract-prompt.sh "$slice" "$session_id" "$regex_hits"`.
+  - Dispatch one `Agent` per file in a single message
+    (`subagent_type: "general-purpose"`, prompt = step-d output).
+  - Parallelism cap: 8 per round; `>~24` files → offer the script
+    fallback.
+  - Extract JSON array from each Agent's message text, validate with
+    `jq -e .`, overwrite raw file on success and `rm` slice; leave
+    both intact for retry on failure.
+  - Report `enriched=N failed=M skipped_no_slice=K already_structured=L`.
+- Added a closing note that `scripts/punts-enrich.sh` and
+  `/rulez:punts-enrich` remain for batch back-fills.
+- Bumped `VERSION` to 1.3.1.
+- Added `## To v1.3.1 — from v1.3.0` section to UPGRADE.md (motivation,
+  why-now, what's-unchanged, migration).
+- Two-commit pattern: `d9601f0` (substantive) + `b5c7488` (release).
+- Pushed, pulled into global install, re-ran `bin/setup -q`. Confirmed
+  `~/.claude/skills/rulez-claudeset/VERSION` reads `1.3.1`.
 
-- **Symptom:** live Stop hook reported `Failed with non-blocking status code: No stderr output` after the punt-triage handoff was committed. Reproduced standalone with EXITCODE 141.
-- **Root cause:** `tail -c +X | head -c Y` in `read_window` (and the sibling slice extract) — when the file is bigger than the pipe buffer (~64 KB on macOS), `head` closes the pipe after Y bytes while `tail` still has more to write. Tail dies with SIGPIPE → exit 141 → under `set -euo pipefail` that 141 propagates → `set -e` aborts.
-- **Why earlier tests didn't catch it:** the v1.2.2-era chunking test used a 635-byte transcript that fits entirely in the pipe buffer, so `tail` finished writing before `head` could close. The bug was completely invisible until a real session crossed the 64 KB threshold.
-- **Fix:** appended `|| true` to each `tail | head` pipeline in `read_window` (both line-boundary and mid-line branches) and to the `head -c "$size" "$transcript_path"` standalone-head call. Output is already complete by the time tail dies; suppressing the pipefail propagation is safe.
-- **Regression test:** `test_no_sigpipe_on_large_transcript` builds a 100 KB transcript with `PUNT_MAX_CHUNK=8192` and asserts script exits 0. Verified the fix end-to-end against the original 9.4 MB transcript (`/Users/rulez/.claude/projects/-Users-rulez-Dropbox-Projects-26-03-shared-tools/e2f3ead2-ff5a-474f-82f6-5186d2706418.jsonl`).
+### v1.3.2 ship sequence
 
-### v1.3.0 — Defer enrichment from hook to enrich script (commits at HEAD)
-
-The user noted that even after v1.2.5 the hook still forks a backgrounded subshell that runs `claude -p` per chunk — minutes of wall-clock work, killable mid-flight, hard to reason about. Proposal: split the pipeline.
-
-- **Brainstormed** two flavors. Picked **Flavor A** for v1.3.0: hook becomes purely synchronous; new `punts-enrich.sh` runs on demand; `/rulez:punts-triage` auto-invokes enrich at step 1. Flavor B (use Task/Agent tool from inside the triage session) was deferred — could be a follow-up release.
-- **Hook surgery:** stripped `CLAUDE_BIN`, the backgrounded subshell, and the per-chunk subagent invocation from `scripts/punts-detect.sh`. Hook now writes only `{session_id, regex_hits, fallback: "regex-only"}` per hit-bearing chunk. Crucially, **`session_id` is now embedded in the raw file** so `punts-enrich.sh` doesn't have to reverse-engineer it from the filename (UUIDs contain dashes, basename-parsing is fragile).
-- **Slice files now persist** until enrichment consumes them. Storage is a few KB per chunk; UPGRADE note suggests `find -mtime +14 -delete` opportunistic cleanup if it ever becomes a problem.
-- **`scripts/punts-enrich.sh`:** walks `raw/*.json`, skips files where `.fallback != "regex-only"` (idempotent), pairs each remaining file with its slice via filename basename, builds the prompt via `punts-extract-prompt.sh`, runs `claude -p`, validates JSON via `jq -e .`, on success overwrites raw + removes slice. Logs aggregate counts to stdout (`processed=N enriched=M failed=K skipped_no_slice=S already_structured=A`). Per-file errors go to stderr; script always exits 0 so it can be safely chained.
-- **`commands/rulez/punts-enrich.md`:** new slash command. Not strictly required — triage auto-invokes — but useful for batch back-fills.
-- **`commands/rulez/punts-triage.md`:** new step 1 ("Enrich any regex-only evidence first") at the very top, then renumbered the existing seven steps to 2–9 via per-step Edit calls.
-- **`settings.json`:** added two entries (Bash permission and Skill permission for the new enrich command).
-
-### Test reorganization
-
-Substantial. From `tests/punts/test-detect.sh`:
-
-- **Removed** `test_subagent_writes_structured_json`, `test_subagent_receives_slice_path_not_full_transcript`, `test_invalid_subagent_output_falls_back_to_regex` — these all test the hook's subagent path, which no longer exists. Replaced with adapted equivalents in `test-enrich.sh`.
-- **Inverted** `test_slice_files_cleaned_up` → `test_slice_files_persist_for_enrich` (the hook should NOT delete slice files; enrich does).
-- **Added** `test_hook_does_not_spawn_claude` (regression: fake claude that records its invocation must never be called by the hook).
-- **Added** `test_raw_file_embeds_session_id` (regression: enrich depends on `.session_id` being in the raw file).
-
-New file `tests/punts/test-enrich.sh`:
-
-- `test_enrich_promotes_regex_only_to_structured` — happy path.
-- `test_enrich_skips_already_structured` — idempotency.
-- `test_enrich_invalid_output_keeps_regex_only` — JSON validation.
-- `test_enrich_skips_when_slice_missing` — graceful skip when slice was deleted.
-- `test_enrich_no_claude_binary_is_noop` — bail when claude not on PATH.
-
-Helper `prime_regex_only_pair` writes a fake regex-only raw file + matching slice for one chunk; sets `PRIME_RAW`/`PRIME_SLICE` globals (initially used `read raw slice <<<...` from two-line output, but `read` with multiple args splits ONE line by IFS, not multiple lines — switched to globals).
-
-### Process notes
-
-- All releases used the established two-commit pattern: substantive commit + `chore: release vX.Y.Z`.
-- Commit messages written via Write to `/tmp/cc-msg-*.txt` then `git commit -F` (heredoc-quoting bug from prior sessions still applicable).
-- After each release: push → pull into `~/.claude/skills/rulez-claudeset/` → `bin/setup -q` → verify VERSION.
+- Discussed with user: built-in `/compact` cannot be invoked
+  programmatically from inside a skill — only the user can type it.
+  Closest workaround: have the handoff command end with a literal
+  one-line prompt.
+- Added step 5 to `commands/rulez/handoff.md` instructing the
+  assistant to end its reply with:
+  `> Handoff committed. Run \`/compact\` now to free up context for the next task.`
+- Bumped VERSION to 1.3.2 and added `## To v1.3.2 — from v1.3.1`
+  section to UPGRADE.md.
+- Two-commit pattern again. Pushed, pulled into global install,
+  re-ran setup; global VERSION is `1.3.2`.
 
 ## What Didn't Work
 
-- **`prime_regex_only_pair` first attempt** used `printf '%s\n%s\n'` and `read -r raw slice <<<"$(...)"` — that splits ONE line into fields by IFS, not two lines into two vars. Test reported missing files because `slice` was empty. Fixed by switching to `PRIME_RAW`/`PRIME_SLICE` globals.
+Nothing concrete failed this session. A few explicit non-goals:
 
-- **Step renumbering in `punts-triage.md`** — initial Edit inserted a new step 1 but didn't renumber the existing 1–8. Caught immediately on read-back; renumbered with seven sequential single-line Edits (steps 2 → 3, 3 → 4, ..., 8 → 9).
-
-- **Live debug exit code 141 was non-deterministic** in standalone runs — first synthetic invocation (with debug session_id whose offset was already near EOF) returned 0, the next (fresh debug2 session_id starting at offset 0) returned 141. Discovered the cause is "how many chunks does this Stop fire actually slice" — short windows fit in the pipe buffer and never SIGPIPE.
-
-- **Test infrastructure noise** — `Killed: 9` lines still appear in test output during back-to-back runs of subagent-spawning tests. Pre-existing race ([PUNT] from v1.2.4 handoff). Tests still all pass; ignored. Note: now that v1.3.0 hook doesn't spawn claude at all, this noise should diminish — only `test-enrich.sh` tests fork claude, and they're not subject to the same parent-shell race.
-
-- **Wrapper-vs-bare-array shape mismatch** — still unresolved. Production `claude -p --output-format json` returns a wrapper `{"type":"result","result":"<json string>",...}` but tests use fake claude binaries that emit bare arrays. The on-disk format triage walks is "the bare array" via `.[0].id`. Real production output stored verbatim would not match. [PUNT]: separate change, separate release. The deferred-enrichment architecture in v1.3.0 makes this easier to fix later — `punts-enrich.sh` could unwrap `.result` before writing.
+- **`/rulez:punts-enrich` and `scripts/punts-enrich.sh` left
+  untouched.** They still use `claude -p --output-format json`
+  internally and therefore still emit the `{result: "..."}` wrapper
+  shape — the long-standing wrapper-vs-bare-array `[PUNT]` from prior
+  sessions still applies on the script path. The Agent path inside
+  triage sidesteps it because we parse plain message text.
+- **No new tests added for v1.3.1 or v1.3.2.** Triage and handoff are
+  both prose-only `.md` slash commands; the existing bash test suite
+  exercises scripts. Live smoke-testing is the right gate for the
+  triage refactor (see Next Steps).
 
 ## Next Steps
 
-1. **Live smoke-test v1.3.0 end-to-end.** End an active session containing punt phrasing in this very repo. Verify: state offset advances; `raw/<sid>-<chunk_end>-<pid>.json` files exist with `fallback: "regex-only"`; matching slice files exist in `state/`. Then run `/rulez:punts-triage` — verify it auto-invokes enrich, watch the slice files disappear and raw files become structured.
+Ordered by priority:
 
-2. **Wrapper-vs-bare-array fix.** Long-overdue [PUNT]. Update `scripts/punts-enrich.sh` to extract `.result` from the claude wrapper, parse it as JSON, and write the bare array to disk. Update `test_enrich_promotes_regex_only_to_structured` to use a wrapper-emitting fake claude. Triage code stays unchanged.
-
-3. **Slice-file cleanup automation.** Currently slice files accumulate forever if enrich never runs. Add to `scripts/punts-detect.sh` a one-liner `find .claude/punts/state -name 'slice-*' -mtime +14 -delete` (cheap, non-blocking). Or expose as opt-in env var.
-
-4. **Test cleanup race** ([PUNT] from v1.2.4 handoff) — backgrounded subshells in tests should be awaited before `rm -rf $proj`. Less urgent now that v1.3.0 hook doesn't background, but still relevant for `test-enrich.sh`.
-
-5. **Flavor B exploration** — migrate `/rulez:punts-triage` from invoking `punts-enrich.sh` to dispatching `Agent`/`Task` tool calls directly inside the session. Cleaner integration, naturally parallelizable, sidesteps the wrapper question entirely. Defer until Flavor A has live data.
-
-6. **Carryovers from prior sessions** (still relevant):
-   - `auto-update.sh` failure marker hardening.
-   - `set-current-command.sh` hardening.
-   - `/rulez:todo` smoke test.
-   - `/effort max` chip smoke test.
-   - watch claude-code#43989 for `auto_compact_threshold` exposure (would replace the hardcoded 400k in `scripts/statusline.sh`).
+1. **Live smoke-test v1.3.1 end-to-end.** Trigger a real Stop on a
+   session containing punt phrasing in this very repo. Verify:
+   - Hook writes `.claude/punts/raw/<sid>-<chunk_end>-<pid>.json`
+     with `fallback: "regex-only"`.
+   - Matching slice exists in `.claude/punts/state/slice-...`.
+   - Then run `/rulez:punts-triage` — confirm it dispatches Agents in
+     parallel, slice files disappear, raw files become structured
+     arrays.
+2. **Wrapper-vs-bare-array on the script path.** Long-standing
+   carryover. `scripts/punts-enrich.sh` still relies on
+   `claude -p --output-format json` and the result is a wrapper
+   object. Either unwrap inside the script, or migrate the script to
+   `--output-format text` and parse the array out the same way the
+   triage Agent path does. See prior HANDOFFs for context.
+3. **Slice-file accumulation cleanup.** UPGRADE.md (v1.3.0 section)
+   recommends `find .claude/punts/state -name 'slice-*' -mtime +14
+   -delete` opportunistically. Not implemented in the hook yet — add
+   it cheaply at the top of `punts-detect.sh` when slice budget
+   becomes a real concern.
+4. **Test cleanup race** carryover from prior session — see prior
+   HANDOFFs.
+5. **Carryovers from earlier sessions** (auto-update.sh hardening,
+   statusline auto_compact_threshold, etc.). None blocking.
 
 ## Key Decisions
 
-- **Defer enrichment, don't parallelize the hook's `claude -p` calls.** The user said costs aren't a concern, but the original v1.2.x design's failure modes weren't really cost-related — they were about *predictability* (long-running detached subshells, Killed: 9 mid-flight, stacked subshells from rapid Stop fires). Splitting the pipeline solves all of these without touching parallelism.
-
-- **Embed `session_id` in the raw file** rather than parse it out of the filename. UUIDs contain dashes; the filename is `<UUID>-<12digit>-<pid>.json`; an `awk -F'-' '{NF-=2}'` would chew off too much. Adding `session_id` to the JSON is one extra `--arg` to jq and removes a fragile coupling.
-
-- **Slice files persist between hook fires.** Alternative: write a serialized "byte range descriptor" (file path + offsets) and let enrich re-read the transcript. Rejected because the transcript may have been compacted/rotated/truncated by the time enrich runs (especially for backlog drains). Snapshotting the slice synchronously preserves enrichability even if the underlying transcript is rewritten.
-
-- **Serial-not-parallel inside the (now removed) backgrounded subshell** — kept this design choice in the v1.3.0 enrich script too (sequential `for` loop, not parallel forks). Cost not the issue; rate limits still are. A 38-chunk parallel storm would 429-burst all chunks simultaneously. Triage runs once on demand, so even a 6-min sequential drain is acceptable UX.
-
-- **Enrich exits 0 always.** Per-file errors go to stderr; aggregate counts go to stdout. This makes it safe to chain (`enrich.sh && triage.sh ...`) and easy to fold into auto-invocation from `/rulez:punts-triage`.
-
-- **Slice file naming mirrors raw file naming.** `slice-<sid>-<chunk_end>-<pid>.jsonl` ↔ `<sid>-<chunk_end>-<pid>.json`. Enrich derives one from the other via `basename "$raw" .json` + prefix. Tighter coupling than separate UUIDs, but means we can't have orphaned slices that don't correspond to any raw file (or vice versa) — easier to reason about cleanup.
-
-- **Two-commit release pattern preserved** across both releases this session. Bisect-friendly. Pattern locked in: substantive commit + `chore: release vX.Y.Z`.
-
-- **`test-detect.sh` and `test-enrich.sh` as separate files.** Runner already does `for f in test-*.sh; do source "$f"; done` and `for fn in $(declare -F | grep '^test_'); do "$fn"; done`, so splitting is free. Keeps each file focused and lets future Stop-hook-only work touch only one of them.
+- **Two enrichment paths now coexist.** Agent (in-session,
+  triage-driven, parallel) is the default; script (`claude -p`,
+  sequential) is for batch / cron / non-interactive shells. They share
+  `punts-extract-prompt.sh` so the prompt body is identical.
+- **Parallelism cap of 8** in triage step 1, with a soft offer to
+  fall back to the script if the regex-only backlog exceeds ~24
+  files. Cost isn't the reason — rate limits and per-round
+  wall-clock are.
+- **`general-purpose` subagent type** for the enrichment Agents.
+  Considered defining a dedicated `punts-extractor` agent, but
+  declined: more infra than v1.3.1 needs, and the prompt itself is
+  already self-contained.
+- **JSON parsing on the Agent path is naked text scanning** ("first
+  `[ ... ]` block in the message"). This is acceptable because the
+  prompt explicitly asks for a single JSON array and Agents have
+  proven reliable at honoring that. The script path's
+  `--output-format json` wrapper is intentionally not removed yet —
+  doing so would change the script path's contract; it's tracked as
+  Next Step #2.
+- **`/compact` is a client-side command.** The handoff skill cannot
+  invoke it; the v1.3.2 nudge is the cleanest available workaround.
+- **The handoff command's step 5 is in effect from v1.3.2 onward.**
+  Slash commands are loaded at session start, so the new behaviour
+  fires on the *next* `/rulez:handoff` invocation, not necessarily on
+  the one that produced this document.
