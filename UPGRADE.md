@@ -1,5 +1,53 @@
 # Upgrade Guide
 
+## To v1.2.0 — from v1.1.4
+
+Additive feature release. No breaking changes. Re-run `bin/setup` (or let the
+SessionStart auto-update do it) to pick up the new Stop hook.
+
+### What's new
+
+- **Punt detection.** Sessions now end with a regex screen of the transcript
+  for "pre-existing", "out of scope", and similar phrasing — plus the
+  explicit `[PUNT]: <reason>` marker (now documented in `RULEZ.md`). When at
+  least one hit is found, a backgrounded `claude -p` extracts structured
+  evidence into `.claude/punts/raw/<session-uuid>.json`. The hook returns
+  immediately so the UI is not blocked. If `claude` is not on PATH, the raw
+  regex hits are written instead so evidence is never lost.
+- **Triage on demand.** New `/rulez:punts-triage` slash command walks the
+  accumulated raw evidence interactively. APPROVE writes a curated
+  `.claude/punts/<slug>.md` (git-tracked, one issue per file); REJECT drops
+  the row; SKIP leaves it for next time; MERGE appends to an existing `.md`
+  when the same `id` (SHA-1 of the claim) resurfaces.
+- **`RULEZ.md` addition.** New `## Punts` section asking Claude to flag
+  out-of-scope decisions as `[PUNT]: <reason>` on their own line. Soft hint —
+  the regex catches both marked and un-marked punts.
+
+### Project-level housekeeping
+
+The runtime data lives under `<project>/.claude/punts/`:
+
+- `.claude/punts/raw/` — transient evidence; safe to delete.
+- `.claude/punts/<slug>.md` — curated knowledge.
+
+Most projects already gitignore `.claude/` wholesale; if you want to track
+the curated `.md` files in git, narrow the ignore to:
+
+```
+.claude/*
+!.claude/punts/
+.claude/punts/raw/
+```
+
+### Disabling
+
+If you do not want the Stop hook, edit `~/.claude/settings.json` and remove
+the `Stop` entry whose command references `rulez-claudeset/scripts/punts-detect.sh`.
+`bin/setup` will not re-add it on subsequent runs as long as a hook with that
+command path exists, so removing it is sticky.
+
+---
+
 ## To v1.1.4 — from v1.1.3
 
 Patch release. No user action required.
