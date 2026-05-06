@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Build the prompt fed to `claude -p` for extracting punt evidence from a
-# session transcript. Pure stdout — no file I/O. Called by punts-detect.sh.
+# slice of a session transcript. Pure stdout — no file I/O. Called by
+# punts-detect.sh once per chunk that contains regex hits.
 #
 # Args:
-#   $1  transcript_path  Absolute path to the JSONL transcript.
-#   $2  session_id       Session UUID.
-#   $3  regex_hits       Newline-separated lines that matched the regex screen.
+#   $1  slice_path   Path to the per-chunk JSONL slice (NOT the full
+#                    transcript — see punts-detect.sh chunking logic).
+#   $2  session_id   Session UUID.
+#   $3  regex_hits   Newline-separated lines from this chunk that matched
+#                    the regex screen.
 set -euo pipefail
 
-transcript_path="$1"
+slice_path="$1"
 session_id="$2"
 regex_hits="$3"
 
@@ -20,7 +23,12 @@ You are analyzing a Claude Code session transcript to extract "punts" — issues
 the assistant noticed but explicitly chose not to fix because they were
 pre-existing, out of scope, or unrelated to the current change.
 
-Read the transcript at: $transcript_path
+Read the transcript slice at: $slice_path
+
+Note: this file is a byte-range slice from a longer JSONL session transcript —
+bytes before the slice are intentionally not visible. Limit evidence_quote and
+context_quote to lines that are actually present in this slice; do not infer
+content from outside it.
 
 Two signals indicate a punt:
   1. The assistant emitted a line tagged "[PUNT]: <reason>" — these are
@@ -34,7 +42,10 @@ pre-existing tests pass" is not a punt).
 
 Session metadata to embed in every row:
   session_id:        $session_id
-  session_ended_at:  $ended_at
+  session_ended_at:  $ended_at  (timestamp of when this Stop hook fired; for
+                                 backlog drains this is "now", not the wall-
+                                 clock time the underlying messages were
+                                 originally written)
   branch:            $branch
 
 For each genuine punt, emit one JSON object with these fields:
