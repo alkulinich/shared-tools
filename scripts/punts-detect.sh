@@ -46,7 +46,24 @@ mkdir -p .claude/punts/raw
 
 out=".claude/punts/raw/${session_id}.json"
 
-# Subagent path comes in Task 5. For now, always write the regex-only fallback.
-jq -n --arg hits "$hits" '{regex_hits: $hits, fallback: "regex-only"}' > "$out.tmp"
-mv "$out.tmp" "$out"
+# Resolve claude binary location. If unavailable, fall through to regex-only
+# fallback so evidence is never lost.
+CLAUDE_BIN="$(command -v claude || true)"
+
+if [ -n "$CLAUDE_BIN" ]; then
+  # Subagent path — extract structured evidence in the background.
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  prompt="$(bash "$SCRIPT_DIR/punts-extract-prompt.sh" "$transcript_path" "$session_id" "$hits")"
+  (
+    "$CLAUDE_BIN" -p "$prompt" --output-format json --max-turns 1 \
+      > "$out.tmp" 2>/dev/null \
+    && mv "$out.tmp" "$out" \
+    || jq -n --arg hits "$hits" '{regex_hits: $hits, fallback: "subagent-failed"}' > "$out"
+  ) &
+  disown
+else
+  # No claude binary — write regex hits as a fallback.
+  jq -n --arg hits "$hits" '{regex_hits: $hits, fallback: "regex-only"}' > "$out.tmp"
+  mv "$out.tmp" "$out"
+fi
 exit 0

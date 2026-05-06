@@ -22,7 +22,7 @@ test_soft_phrase_writes_fallback() {
   out="$proj/.claude/punts/raw/session-soft-001.json"
 
   # Override PATH so claude binary is not found — exercises fallback path.
-  ( cd "$proj" && PATH="/usr/bin:/bin" printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
   assert_file_exists "$out" "soft-phrase: regex fallback JSON written"
   if [ -f "$out" ]; then
@@ -45,7 +45,7 @@ test_marker_detected() {
   stdin="$(make_stdin "$transcript" "session-marker-001")"
   out="$proj/.claude/punts/raw/session-marker-001.json"
 
-  ( cd "$proj" && PATH="/usr/bin:/bin" printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  ( cd "$proj" && export PATH="/usr/bin:/bin" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
 
   assert_file_exists "$out" "marker: regex fallback JSON written"
   if [ -f "$out" ]; then
@@ -56,5 +56,55 @@ test_marker_detected() {
       *) printf '  FAIL: marker: regex_hits missing [PUNT]:\n'; TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1)) ;;
     esac
   fi
+  rm -rf "$proj"
+}
+
+test_subagent_writes_structured_json() {
+  local proj transcript stdin out fake_bin fake_payload
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  stdin="$(make_stdin "$transcript" "session-subagent-001")"
+  out="$proj/.claude/punts/raw/session-subagent-001.json"
+
+  # Fake claude binary that emits a structured evidence array (one row).
+  fake_bin="$proj/bin"
+  fake_payload="$proj/fake-claude-output.json"
+  cat > "$fake_payload" <<'EOF'
+[
+  {
+    "id": "0000000000000000000000000000000000000001",
+    "session_id": "session-subagent-001",
+    "session_ended_at": "2026-05-06T14:30:00Z",
+    "branch": "main",
+    "evidence_quote": "the auth middleware has a pre-existing bug — leaving it",
+    "context_quote": "...",
+    "claim": "auth middleware bug",
+    "files_mentioned": [],
+    "regex_hit": "pre-existing",
+    "source": "regex",
+    "subagent_confidence": "medium"
+  }
+]
+EOF
+  install_fake_claude "$fake_bin" "$fake_payload"
+
+  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  # Subagent runs detached — wait up to 5s for the output file to appear.
+  if wait_for_file "$out" 5; then
+    printf '  ok: subagent: output file appeared within timeout\n'
+    TESTS_RUN=$((TESTS_RUN + 1))
+  else
+    printf '  FAIL: subagent: output file did not appear within 5s\n'
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    rm -rf "$proj"
+    return
+  fi
+
+  local first_id
+  first_id=$(jq -r '.[0].id // empty' "$out")
+  assert_eq "0000000000000000000000000000000000000001" "$first_id" \
+    "subagent: structured JSON id passed through"
   rm -rf "$proj"
 }
