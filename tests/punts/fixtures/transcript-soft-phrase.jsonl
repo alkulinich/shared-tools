@@ -1,0 +1,2 @@
+{"type":"user","message":{"content":"refactor the parser"}}
+{"type":"assistant","message":{"content":"Done. I noticed the auth middleware has a pre-existing bug — leaving it for later since it is unrelated to this change."}}

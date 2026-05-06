@@ -29,5 +29,22 @@ session_id=$(echo "$input" | jq -r '.session_id // empty')
 [ -z "$transcript_path" ] && exit 0
 [ ! -f "$transcript_path" ] && exit 0
 
-# Regex screen — placeholder, to be filled in Task 3.
+# Regex screen for soft phrases that signal a punt. Case-insensitive.
+PUNT_PHRASES='pre-existing|pre existing|already broken|out of scope|not related to (this|the change)|unrelated to (this|the change)|existing (issue|bug)|leave (this|that|it) for later|leaving (this|that) (for now|alone)|outside (the|this) scope'
+
+# Look only at assistant messages — user input is irrelevant for punt detection.
+hits=$(jq -c 'select(.type=="assistant") | .message.content // empty' "$transcript_path" 2>/dev/null \
+  | grep -iE "$PUNT_PHRASES" || true)
+
+# No hits → nothing to capture.
+[ -z "$hits" ] && exit 0
+
+# Ensure the project punts directory exists (cwd is project root for Stop hooks).
+mkdir -p .claude/punts/raw
+
+out=".claude/punts/raw/${session_id}.json"
+
+# Subagent path comes in Task 5. For now, always write the regex-only fallback.
+jq -n --arg hits "$hits" '{regex_hits: $hits, fallback: "regex-only"}' > "$out.tmp"
+mv "$out.tmp" "$out"
 exit 0
