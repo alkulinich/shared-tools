@@ -33,7 +33,9 @@ session_id=$(echo "$input" | jq -r '.session_id // empty')
 PUNT_PHRASES='\[PUNT\]:|pre-existing|pre existing|already broken|out of scope|not related to (this|the change)|unrelated to (this|the change)|existing (issue|bug)|leave (this|that|it) for later|leaving (this|that) (for now|alone)|outside (the|this) scope'
 
 # Look only at assistant messages — user input is irrelevant for punt detection.
-hits=$(jq -c 'select(.type=="assistant") | .message.content // empty' "$transcript_path" 2>/dev/null \
+# `jq -r` outputs raw strings (no JSON quoting) so the matched lines do not get
+# double-quoted when re-encoded into the fallback JSON below.
+hits=$(jq -r 'select(.type=="assistant") | .message.content // empty' "$transcript_path" 2>/dev/null \
   | grep -iE "$PUNT_PHRASES" || true)
 
 # No hits → nothing to capture.
