@@ -1,5 +1,64 @@
 # Upgrade Guide
 
+## To v1.3.0 — from v1.2.5
+
+Minor release. **Behavior change** to the punt-detection pipeline: subagent
+enrichment is now deferred from the Stop hook to a dedicated `punts-enrich.sh`
+script, auto-invoked at the top of `/rulez:punts-triage`.
+
+### Motivation
+
+The Stop hook used to fork a backgrounded subshell that ran one `claude -p`
+per chunk. On long-running sessions, the subshell could:
+
+- Run for several minutes draining a backlog (38+ chunks × ~10 s each).
+- Be killed mid-flight when the parent terminal closed (saw `Killed: 9` in
+  tests; slice files leaked).
+- Stack up if Stop fired multiple times in close succession.
+
+Mixing synchronous artifact capture with long-tail asynchronous enrichment
+in one script made behavior hard to reason about and debug.
+
+### What changed
+
+- **Stop hook (`scripts/punts-detect.sh`)** now does only synchronous work:
+  offset bookkeeping, regex screen, slice extraction, and a regex-only
+  fallback raw file per hit-bearing chunk. **No `claude -p`. No backgrounded
+  subshell.** Returns in milliseconds even on multi-MB transcripts.
+- Slice files (`.claude/punts/state/slice-<sid>-<chunk_end>-<pid>.jsonl`)
+  now persist on disk until enrichment consumes them.
+- New script **`scripts/punts-enrich.sh`** walks `raw/*.json` files with
+  `fallback == "regex-only"`, finds the matching slice, runs `claude -p` to
+  extract structured rows, validates the response is parseable JSON, and on
+  success overwrites the raw file and removes the slice. Idempotent — safe
+  to run repeatedly.
+- New slash command **`/rulez:punts-enrich`** for manual invocation.
+- **`/rulez:punts-triage` now auto-invokes enrich** as its first step, so
+  most users will never need to call enrich directly.
+
+### Migration
+
+No user action required. Existing raw files with claude-wrapper output (from
+v1.2.x runs) are skipped by enrich because `.fallback != "regex-only"`. New
+hits captured under v1.3.0 will be regex-only until triage.
+
+If you have stale slice files from a pre-v1.3.0 install (left behind when
+the old detached subshell was killed), they will be picked up by enrich on
+its next run.
+
+### Storage note
+
+Slice files now accumulate on disk until enrichment runs. For typical
+sessions this is a few KB per chunk; for long-running dialogs with many
+hits, it can grow into MBs. If you never run `/rulez:punts-triage` and
+slice files become a concern, an opportunistic cleanup is:
+
+```bash
+find .claude/punts/state -name 'slice-*' -mtime +14 -delete
+```
+
+This may be added to the hook itself in a future release.
+
 ## To v1.2.5 — from v1.2.4
 
 Patch release. **Real bug fix** — recommended for anyone with long-running
