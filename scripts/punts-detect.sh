@@ -105,19 +105,25 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # (i.e., the byte at `start - 1` is not '\n'), drop the partial first line so
 # the consumer sees only whole JSONL records. Bash's command substitution strips
 # trailing newlines, so the prev-byte check uses string emptiness as the signal.
+#
+# `|| true` on each `tail | head` pipeline: head closes the pipe after reading
+# `size` bytes, which makes `tail` write into a closed pipe and exit 141 via
+# SIGPIPE. Under `set -euo pipefail`, that 141 would propagate and abort the
+# whole script. The output we care about (head's stdout) is already complete by
+# the time tail dies, so suppressing the pipe-fail exit code is safe.
 read_window() {
   local start="$1" size="$2"
   if [ "$start" -le 0 ]; then
-    head -c "$size" "$transcript_path"
+    head -c "$size" "$transcript_path" || true
     return 0
   fi
   local prev
   prev=$(tail -c +"$start" "$transcript_path" 2>/dev/null | head -c 1 || true)
   if [ -z "$prev" ]; then
     # Byte at start-1 was '\n' (or beyond EOF) → start sits on a line boundary.
-    tail -c +$((start + 1)) "$transcript_path" | head -c "$size"
+    tail -c +$((start + 1)) "$transcript_path" | head -c "$size" || true
   else
-    tail -c +$((start + 1)) "$transcript_path" | head -c "$size" | tail -n +2
+    tail -c +$((start + 1)) "$transcript_path" | head -c "$size" | tail -n +2 || true
   fi
 }
 

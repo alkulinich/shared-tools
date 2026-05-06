@@ -198,6 +198,43 @@ test_new_bytes_written_only_for_new_window() {
   rm -rf "$proj"
 }
 
+test_no_sigpipe_on_large_transcript() {
+  # Regression: when a transcript is bigger than the pipe buffer (~64 KB),
+  # `tail -c +X | head -c Y` triggers SIGPIPE on tail because head closes
+  # the pipe after Y bytes while tail still has more to write. Under
+  # `set -euo pipefail`, that 141 propagates and the whole script aborts.
+  # The fix was `|| true` on each tail|head pipeline inside read_window /
+  # the slice extract. Build a >100 KB transcript with 8 KB chunks so the
+  # pipe buffer overflows, and assert exit 0.
+  local proj transcript stdin sid result i
+  proj="$(make_temp_project)"
+  sid="session-sigpipe-001"
+  transcript="$proj/transcript.jsonl"
+
+  # 500 lines of ~200 bytes each ≈ 100 KB. No punt phrases — we only care
+  # that the script gets through the chunk loop without exit 141.
+  for i in $(seq 1 500); do
+    printf '{"type":"assistant","message":{"content":"line %d normal text with padding to reach roughly two hundred bytes per line for a total over one hundred kilobytes which is comfortably above the pipe buffer threshold"}}\n' "$i"
+  done > "$transcript"
+
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  # The runner uses `set -uo pipefail` (no -e), so a non-zero subshell exit
+  # just sets $? and execution continues — no toggle needed.
+  ( cd "$proj" && export PATH="/usr/bin:/bin" PUNT_MAX_CHUNK=8192 PUNT_LOOKBACK=0 \
+    && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+  result=$?
+
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [ "$result" -eq 0 ]; then
+    printf '  ok: sigpipe-tolerance: script exited 0 on >100 KB / 8 KB-chunk transcript\n'
+  else
+    printf '  FAIL: sigpipe-tolerance: script exited %d (expected 0 — likely SIGPIPE regression)\n' "$result"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -rf "$proj"
+}
+
 test_invalid_subagent_output_falls_back_to_regex() {
   local proj transcript stdin sid fake_bin out fallback i
   proj="$(make_temp_project)"
