@@ -35,3 +35,9 @@ Any non-obvious choices made during this session that the next agent should know
 3. **Be honest and specific.** The value of a handoff is in the details — vague summaries waste the next agent's time. Include file paths, error messages, and reasoning.
 
 4. **Commit it** — run `bash ~/.claude/skills/rulez-claudeset/scripts/git-commit-handoff.sh` to preserve this handoff in git history. The script only stages `HANDOFF.md` (not other WIP), skips if unchanged, and writes a `docs: handoff — <task>` commit.
+
+5. **Tell the user to compact** — `/compact` is a client-side command and you cannot invoke it yourself, so end your reply with a short, literal line such as:
+
+   > Handoff committed. Run `/compact` now to free up context for the next task.
+
+   Keep it as the final line so the user sees it without scrolling.
