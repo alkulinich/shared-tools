@@ -1,5 +1,44 @@
 # Upgrade Guide
 
+## To v1.3.1 — from v1.3.0
+
+Patch release. **No user action required.** Behavior parity with v1.3.0;
+the change is internal to how `/rulez:punts-triage` reaches enrichment.
+
+### What changed
+
+- **`/rulez:punts-triage` now enriches via the Agent (Task) tool from
+  inside the triage session itself**, instead of shelling out to
+  `scripts/punts-enrich.sh` (which loops `claude -p`). One Agent
+  dispatch per slice file, dispatched in parallel (cap 8 per round; if
+  the backlog is large, triage offers to fall back to the script).
+
+### Why
+
+- The Agent tool runs inside the triage session — same prompt cache,
+  same conversation context, no separate billing artifact per call.
+- Per-chunk parallelism without managing background subshells.
+- The wrapper-vs-bare-array nuisance from `claude -p --output-format
+  json` is sidestepped: the triage flow parses the Agent's plain
+  message output directly, locates the JSON array, validates it, and
+  writes it back.
+
+### What's unchanged
+
+- `scripts/punts-enrich.sh` and `/rulez:punts-enrich` still exist for
+  batch / non-interactive back-fills (cron, scripted drains, sessions
+  outside Claude Code).
+- The Stop hook is untouched — still synchronous-only, still writes
+  regex-only raw files.
+- The slice file format on disk and raw file naming are unchanged.
+  Files written by v1.3.0 enrich the same way under v1.3.1; mixed
+  installs across machines work without coordination.
+
+### Migration
+
+Pull, re-run setup. No data migration. Existing raw + slice pairs work
+under either path.
+
 ## To v1.3.0 — from v1.2.5
 
 Minor release. **Behavior change** to the punt-detection pipeline: subagent
