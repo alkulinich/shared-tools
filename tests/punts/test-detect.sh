@@ -108,3 +108,16 @@ EOF
     "subagent: structured JSON id passed through"
   rm -rf "$proj"
 }
+
+test_prompt_contains_required_fields() {
+  local prompt
+  prompt=$(bash "$SCRIPTS_DIR/punts-extract-prompt.sh" \
+    "$FIXTURES_DIR/transcript-soft-phrase.jsonl" "session-prompt-001" "regex hit example")
+
+  for field in "evidence_quote" "claim" "files_mentioned" "subagent_confidence" "source"; do
+    case "$prompt" in
+      *"$field"*) printf '  ok: prompt contains %s\n' "$field"; TESTS_RUN=$((TESTS_RUN + 1)) ;;
+      *) printf '  FAIL: prompt missing %s\n' "$field"; TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1)) ;;
+    esac
+  done
+}
