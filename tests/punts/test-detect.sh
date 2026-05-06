@@ -198,6 +198,104 @@ test_new_bytes_written_only_for_new_window() {
   rm -rf "$proj"
 }
 
+test_chunking_produces_multiple_raw_files() {
+  local proj transcript stdin sid count i
+  proj="$(make_temp_project)"
+  sid="session-chunking-001"
+  transcript="$proj/transcript.jsonl"
+
+  # Five full JSONL assistant lines, each ~127 bytes. With PUNT_MAX_CHUNK=200
+  # (and zero lookback) several chunks line up with line boundaries and emit
+  # hits. Don't assert on the exact count — we just need >= 2 to confirm that
+  # chunking actually fans out instead of producing one giant raw file.
+  for i in 1 2 3 4 5; do
+    printf '{"type":"assistant","message":{"content":"message %d says the auth thing is pre-existing and out of scope, leaving it for later"}}\n' "$i"
+  done > "$transcript"
+
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  ( cd "$proj" && export PATH="/usr/bin:/bin" PUNT_MAX_CHUNK=200 PUNT_LOOKBACK=0 \
+    && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  count=$(count_raw_files "$proj" "$sid")
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [ "$count" -ge 2 ]; then
+    printf '  ok: chunking: %d raw files written for multi-chunk transcript\n' "$count"
+  else
+    printf '  FAIL: chunking: only %d raw file(s) written, expected >= 2\n' "$count"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -rf "$proj"
+}
+
+test_subagent_receives_slice_path_not_full_transcript() {
+  local proj transcript stdin sid fake_bin captured fake_payload i
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  sid="session-slice-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  fake_bin="$proj/bin"
+  captured="$proj/captured-args.txt"
+  fake_payload="$proj/fake.json"
+  echo '[]' > "$fake_payload"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/claude" <<EOF
+#!/usr/bin/env bash
+# Record the prompt arg so the test can assert on its content.
+printf '%s\n' "\$@" > "$captured"
+cat "$fake_payload"
+EOF
+  chmod +x "$fake_bin/claude"
+
+  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  # Wait for the backgrounded subshell to invoke fake claude.
+  i=0
+  while [ ! -f "$captured" ] && [ "$i" -lt 30 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [ -f "$captured" ] && grep -q "slice-${sid}-" "$captured"; then
+    printf '  ok: subagent prompt references slice file (not full transcript)\n'
+  else
+    printf '  FAIL: subagent prompt did not reference slice file\n'
+    [ -f "$captured" ] && printf '    captured: %s\n' "$(cat "$captured")"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -rf "$proj"
+}
+
+test_slice_files_cleaned_up() {
+  local proj transcript stdin sid fake_bin fake_payload remaining i
+  proj="$(make_temp_project)"
+  transcript="$FIXTURES_DIR/transcript-soft-phrase.jsonl"
+  sid="session-cleanup-001"
+  stdin="$(make_stdin "$transcript" "$sid")"
+
+  fake_bin="$proj/bin"
+  fake_payload="$proj/fake.json"
+  echo '[]' > "$fake_payload"
+  install_fake_claude "$fake_bin" "$fake_payload"
+
+  ( cd "$proj" && export PATH="$fake_bin:$PATH" && printf '%s' "$stdin" | bash "$SCRIPTS_DIR/punts-detect.sh" )
+
+  # Wait up to 3s for the backgrounded subshell to finish and clean up slices.
+  i=0
+  while [ "$i" -lt 30 ]; do
+    remaining=$(ls "$proj"/.claude/punts/state/slice-"${sid}"-* 2>/dev/null | wc -l | tr -d ' ')
+    [ "$remaining" -eq 0 ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  remaining=$(ls "$proj"/.claude/punts/state/slice-"${sid}"-* 2>/dev/null | wc -l | tr -d ' ')
+  assert_eq "0" "$remaining" "cleanup: slice files removed after subagent ran"
+  rm -rf "$proj"
+}
+
 test_shrinkage_resets_offset() {
   local proj transcript stdin sid expected actual out
   proj="$(make_temp_project)"
