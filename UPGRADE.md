@@ -1,5 +1,40 @@
 # Upgrade Guide
 
+## To v1.2.2 — from v1.2.1
+
+Patch release. No user action required.
+
+### Fixed
+
+- **Punt subagent no longer chokes on long sessions.** v1.2.1 made the outer
+  Stop hook incremental, but the subagent's own prompt still said *"Read the
+  transcript at `<full transcript>`"* — so on long-running dialogs (e.g. a
+  multi-week session that had accumulated 5+ MB of JSONL with hundreds of
+  matched phrases) `claude -p` blew its input context and either errored or
+  wrote a truncated/malformed raw file. The hook now hands the subagent a
+  per-chunk slice file (just the new byte window, plus a small lookback for
+  the "1-2 surrounding lines" context quote) and slices large windows into
+  multiple chunks, fanning out one detached `claude -p` per chunk.
+
+### Behavior changes
+
+- Output filenames are now `raw/<session_id>-<chunk_end>-<pid>.json` — one
+  per chunk that contains hits. Steady-state sessions still produce one file
+  per Stop fire (one chunk = one file); only oversized windows fan out.
+- Slice files live at `.claude/punts/state/slice-<session_id>-<chunk_end>-<pid>.jsonl`
+  and are deleted by the backgrounded subshell after enrichment. Already
+  covered by the same `.claude/punts/state/` gitignore note from v1.2.1.
+
+### New tunables (env vars)
+
+- `PUNT_MAX_CHUNK` — max bytes per chunk handed to one subagent
+  (default `262144`, i.e. 256 KB).
+- `PUNT_LOOKBACK` — bytes of pre-chunk context included in each slice
+  (default `4096`, i.e. 4 KB).
+
+Both are read once per Stop fire; no need to set them globally unless you
+want different behavior than the defaults.
+
 ## To v1.2.1 — from v1.2.0
 
 Patch release. No user action required.
