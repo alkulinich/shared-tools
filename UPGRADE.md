@@ -1,5 +1,20 @@
 # Upgrade Guide
 
+## To v1.2.4 — from v1.2.3
+
+Patch release. No user action required.
+
+### Fixed
+
+- **Subagent output is now JSON-validated before replacing the regex-only
+  fallback.** Previously the hook trusted `claude -p`'s exit status, but a
+  0 exit with truncated stdout is a real failure mode (observed on >5 MB
+  transcripts pre-v1.2.2). The script now runs `jq -e .` on the temp file
+  after `claude -p` returns; if the output isn't parseable JSON, the temp
+  is discarded and the synchronous regex-only fallback already on disk
+  remains the artifact. Triage now has a guarantee: every `raw/*.json`
+  file is parseable JSON.
+
 ## To v1.2.3 — from v1.2.2
 
 Patch release. No user action required. Documentation/clarity fix only;
