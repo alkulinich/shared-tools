@@ -1,5 +1,22 @@
 # Upgrade Guide
 
+## To v1.3.2 — from v1.3.1
+
+Patch release. **No user action required.** UX-only tweak to
+`/rulez:handoff`.
+
+### What changed
+
+- `/rulez:handoff` now ends with a short literal line telling the user
+  to run `/compact` to free up context. `/compact` is a client-side
+  command that the assistant cannot invoke from inside a skill, so the
+  handoff flow simply prompts the user to type it themselves after the
+  commit lands.
+
+### Migration
+
+Pull, re-run setup. No state change.
+
 ## To v1.3.1 — from v1.3.0
 
 Patch release. **No user action required.** Behavior parity with v1.3.0;
