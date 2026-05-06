@@ -45,14 +45,16 @@ EOF
 }
 
 # Wait for a file to exist (used because the subagent runs detached).
+# Polls every 100ms; returns 0 if the file appears within timeout_secs, 1 otherwise.
 # Args: <path> <timeout_secs>
 wait_for_file() {
   local path="$1"
-  local timeout="${2:-5}"
-  local elapsed=0
-  while [ ! -f "$path" ] && [ "$elapsed" -lt "$timeout" ]; do
+  local timeout_secs="${2:-5}"
+  local max_iters=$((timeout_secs * 10))
+  local iters=0
+  while [ ! -f "$path" ] && [ "$iters" -lt "$max_iters" ]; do
     sleep 0.1
-    elapsed=$((elapsed + 1))
+    iters=$((iters + 1))
   done
   [ -f "$path" ]
 }
