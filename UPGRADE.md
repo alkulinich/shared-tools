@@ -1,5 +1,36 @@
 # Upgrade Guide
 
+## To v1.2.5 — from v1.2.4
+
+Patch release. **Real bug fix** — recommended for anyone with long-running
+sessions.
+
+### Fixed
+
+- **Stop hook no longer crashes with SIGPIPE on transcripts > 64 KB.**
+  v1.2.2 introduced byte-window slicing using `tail -c +X | head -c Y`
+  pipelines inside `read_window`. When the transcript is larger than the
+  OS pipe buffer (~64 KB on macOS/Linux), `head` closes the pipe after
+  reading `Y` bytes while `tail` still has more to write — `tail` exits
+  141 (SIGPIPE), and under `set -euo pipefail` that 141 propagated and
+  aborted the whole script. Symptom: Claude Code reported `Stop hook
+  error: Failed with non-blocking status code: No stderr output` on
+  long sessions; offset state still advanced (the failure is downstream
+  of that), so subsequent fires would re-fail on the next chunk window
+  rather than re-screening already-processed bytes.
+
+  Fix: append `|| true` to each `tail | head` pipeline in `read_window`
+  and in the slice-extract path. The output is already complete by the
+  time `tail` dies, so suppressing the pipefail propagation is safe.
+
+### Test added
+
+- `test_no_sigpipe_on_large_transcript` — builds a 100 KB transcript,
+  forces 8 KB chunks, and asserts script exits 0. The previous chunking
+  test used a 635-byte transcript that fits entirely in the pipe buffer
+  (so `tail` finished before SIGPIPE could fire), which is why the bug
+  was missed earlier.
+
 ## To v1.2.4 — from v1.2.3
 
 Patch release. No user action required.
