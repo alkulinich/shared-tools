@@ -41,8 +41,22 @@ This copies commands into the repo's `.claude/` with paths rewritten for the sub
 | `/rulez:handoff` | Write HANDOFF.md for next agent |
 | `/rulez:dispatch-subagent` | Launch a subagent for a task |
 | `/rulez:simple-script` | Write a minimal shell script |
+| `/rulez:punts-triage` | Walk captured punt evidence and promote worthy items to `.claude/punts/*.md` |
+| `/rulez:punts-enrich` | Back-fill structured rows for regex-only punt evidence (batch) |
 | `/rulez:new-project:*` | New project setup workflow (7 steps) |
 | `/rulez:update-claudeset` | Pull latest version and re-run setup |
+
+## Punts
+
+A "punt" is something you noticed but chose not to fix in the current change — pre-existing, out of scope, or a follow-up. Flag it inline as:
+
+```
+[PUNT]: <one-line description of what you saw and where>
+```
+
+A Stop hook (`scripts/punts-detect.sh`) screens each session's transcript for these phrases (and a few softer variants like "pre-existing", "out of scope") and writes regex-only evidence to `.claude/punts/raw/*.json` along with a transcript slice in `.claude/punts/state/`. Detection is synchronous and millisecond-cheap — no subagent runs in the hook.
+
+When you're ready, run `/rulez:punts-triage`. It enriches any regex-only rows via parallel subagents, then walks each structured row interactively (APPROVE / REJECT / SKIP / MERGE) and promotes approved ones to `.claude/punts/<slug>.md` (one issue per file, git-tracked). For batch back-fills outside triage, `/rulez:punts-enrich` runs the enrichment alone.
 
 ## Utility Scripts
 
@@ -52,6 +66,9 @@ This copies commands into the repo's `.claude/` with paths rewritten for the sub
 | `scripts/session-stats.sh` | Day-by-day session time history | `bash ~/.claude/skills/rulez-claudeset/scripts/session-stats.sh` |
 | `scripts/context-meter.sh` | Context window usage bar (ANSI) | Called by statusline automatically |
 | `scripts/statusline.sh` | Status line renderer (PID, model, time, context, branch) | Configured in settings.json |
+| `scripts/punts-detect.sh` | Stop hook — regex-screens session transcripts, writes raw punt evidence | Auto-invoked on session Stop |
+| `scripts/punts-enrich.sh` | Promotes regex-only raw rows to structured rows via `claude -p` | `bash ~/.claude/skills/rulez-claudeset/scripts/punts-enrich.sh` |
+| `scripts/punts-extract-prompt.sh` | Builds the extraction prompt fed to the enrichment subagent | Called by triage / enrich |
 
 ## Requirements
 
