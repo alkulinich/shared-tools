@@ -21,3 +21,9 @@ not be addressed in the current change, prefer to flag it on its own line as:
 Use this only for genuine observations you are choosing not to act on, not for
 neutral references (e.g. "the pre-existing tests pass" is not a punt).
 Captured punts can be reviewed later via `/rulez:punts-triage`.
+
+## Tone
+
+Avoid dense industry-memo register. Prefer plain prose: short sentences,
+plain verbs, one idea per clause. Applies to chat replies, not code
+identifiers or quoted error text.
