@@ -43,6 +43,7 @@ This copies commands into the repo's `.claude/` with paths rewritten for the sub
 | `/rulez:simple-script` | Write a minimal shell script |
 | `/rulez:punts-triage` | Walk captured punt evidence and promote worthy items to `.claude/punts/*.md` |
 | `/rulez:punts-enrich` | Back-fill structured rows for regex-only punt evidence (batch) |
+| `/rulez:what-have-i-done [N]` | Cross-project rollup: last N calendar days (default 3) of HANDOFF.md + commit subjects across every recently-touched Claude project. |
 | `/rulez:new-project:*` | New project setup workflow (7 steps) |
 | `/rulez:update-claudeset` | Pull latest version and re-run setup |
 
@@ -58,6 +59,12 @@ A Stop hook (`scripts/punts-detect.sh`) screens each session's transcript for th
 
 When you're ready, run `/rulez:punts-triage`. It enriches any regex-only rows via parallel subagents, then walks each structured row interactively (APPROVE / REJECT / SKIP / MERGE) and promotes approved ones to `.claude/punts/<slug>.md` (one issue per file, git-tracked). For batch back-fills outside triage, `/rulez:punts-enrich` runs the enrichment alone.
 
+## What Have I Done
+
+`/rulez:what-have-i-done [N]` reads the last N calendar days (default 3) across every Claude project you've touched and prints a grouped-by-project rollup of HANDOFF.md commits + recent commit subjects. One Agent per project runs in parallel, then a pure renderer formats the result.
+
+The same markdown lands in `~/.claude/what-have-i-done/<today>.md` so you can scroll back through prior days. Re-running on the same day overwrites that day's file (later runs catch fresher commits). Days with no activity for a given project are omitted on prior dates and shown as `(no git activity in window)` for today.
+
 ## Utility Scripts
 
 | Script | Description | Usage |
@@ -69,6 +76,8 @@ When you're ready, run `/rulez:punts-triage`. It enriches any regex-only rows vi
 | `scripts/punts-detect.sh` | Stop hook — regex-screens session transcripts, writes raw punt evidence | Auto-invoked on session Stop |
 | `scripts/punts-enrich.sh` | Promotes regex-only raw rows to structured rows via `claude -p` | `bash ~/.claude/skills/rulez-claudeset/scripts/punts-enrich.sh` |
 | `scripts/punts-extract-prompt.sh` | Builds the extraction prompt fed to the enrichment subagent | Called by triage / enrich |
+| `scripts/what-have-i-done-discover.sh` | Lists recently-touched Claude project dirs, resolved to real cwds | Called by `/rulez:what-have-i-done` |
+| `scripts/what-have-i-done-render.sh` | Pure stdin→markdown formatter for the rollup | Called by `/rulez:what-have-i-done` |
 
 ## Requirements
 
