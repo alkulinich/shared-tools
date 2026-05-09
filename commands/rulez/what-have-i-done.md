@@ -146,6 +146,6 @@ This command runs silently — every shell call is whitelisted. Don't compose ad
 ## Notes
 
 - Output goes both to chat and to `~/.claude/what-have-i-done/<today>.md`. Re-running on the same day overwrites the file (intentional — later runs see fresher commits).
-- Empty days for prior dates are omitted from the rendered output. Empty days for *today* show the project name with `(no git activity in window)` so you can see the project was checked.
+- Projects with no activity on a given date are omitted (today included). Date headings are skipped entirely when no project under them has bullets.
 - A project that consistently fails to summarize is flagged once under today's heading as `(summary failed)` rather than silently dropped.
 - Every shell command in this flow is whitelisted in the rulez-claudeset settings, so the run should not trigger any approval prompts. If it does, the script paths or arguments drifted from the whitelist — fix that, don't approve through.

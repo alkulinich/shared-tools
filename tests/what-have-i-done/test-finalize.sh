@@ -20,8 +20,10 @@ test_finalize_merges_renders_writes() {
 
   assert_contains "## Today (2026-05-09)" "$out" "today heading present"
   assert_contains "shipped v1" "$out" "today bullet from proj-a present"
-  assert_contains "(no git activity in window)" "$out" \
-    "today flags empty proj-b/proj-c"
+  assert_not_contains "(no git activity in window)" "$out" \
+    "no-activity marker is gone entirely"
+  assert_not_contains "proj-b" "$out" \
+    "empty proj-b is omitted"
   assert_contains "## Yesterday (2026-05-08)" "$out" "yesterday heading present"
   assert_contains "fixed thing" "$out" "yesterday bullet from proj-a present"
   assert_contains "## Thursday (2026-05-07)" "$out" "thursday heading present"
@@ -61,8 +63,10 @@ test_finalize_skips_missing_invalid_json() {
     missing "$tmp/nonexistent.json" 2>/dev/null)
 
   assert_contains "valid bullet" "$out" "good project's bullet is rendered"
-  assert_contains "(no git activity in window)" "$out" \
-    "skipped projects fall back to today empty marker"
+  assert_not_contains "(no git activity in window)" "$out" \
+    "no-activity marker is gone entirely"
+  assert_not_contains "**bad**" "$out" \
+    "skipped invalid-JSON project is omitted from output"
   assert_contains "finalize: skipped bad" "$err" \
     "invalid JSON triggers stderr warning"
   assert_contains "finalize: skipped missing" "$err" \
@@ -82,11 +86,14 @@ test_finalize_treats_note_only_as_empty() {
     2026-05-09 2026-05-08,2026-05-09 \
     proj "$tmp/proj.json")
 
-  assert_contains "(no git activity in window)" "$out" \
-    "_note-only return shows as empty under today"
-  # Yesterday should be omitted entirely (no project bullets, prior day → drop).
+  # Both today and yesterday should be omitted entirely when no project has
+  # any bullets — symmetric rule, no special treatment for today.
+  assert_not_contains "## Today" "$out" \
+    "today section omitted when only project has no activity"
   assert_not_contains "## Yesterday" "$out" \
     "yesterday section omitted when only project has no activity"
+  assert_not_contains "(no git activity in window)" "$out" \
+    "no-activity marker is gone entirely"
 
   rm -rf "$tmp"
 }

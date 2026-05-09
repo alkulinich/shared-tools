@@ -21,14 +21,14 @@ test_render_omits_empty_prior_day_project() {
     "yesterday section omits empty 0current-work project"
 }
 
-test_render_shows_no_activity_for_today_empty_project() {
+test_render_omits_empty_today_project() {
   local actual
   actual=$(bash "$SCRIPTS_DIR/what-have-i-done-render.sh" "2026-05-09" \
     < "$FIXTURES_DIR/render-input.json")
   local today_section
   today_section=$(printf '%s' "$actual" | awk '/^## Today/{f=1;next} /^## /{f=0} f')
-  assert_contains "0current-work" "$today_section" \
-    "today section keeps 0current-work even when empty"
-  assert_contains "(no git activity in window)" "$today_section" \
-    "today section flags empty project with no-activity note"
+  assert_not_contains "0current-work" "$today_section" \
+    "today section omits empty 0current-work project"
+  assert_not_contains "(no git activity in window)" "$actual" \
+    "no-activity marker is gone entirely"
 }

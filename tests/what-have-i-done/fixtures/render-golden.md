@@ -6,9 +6,6 @@
 - Documented punts routine in README
 - Shipped v1.3.3 handoff auto-push
 
-**0current-work**
-- (no git activity in window)
-
 ## Yesterday (2026-05-08)
 
 **26.03-shared-tools**

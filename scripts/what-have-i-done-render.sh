@@ -13,8 +13,8 @@
 #   - other dates       → weekday name (e.g. "Thursday")
 #
 # Empty-project rules:
-#   - On <today>: project is shown with "- (no git activity in window)".
-#   - On prior days: project is omitted entirely.
+#   - Projects with no bullets are omitted on every date (today included).
+#   - Date headings are skipped entirely when no project under them has bullets.
 #
 set -euo pipefail
 
@@ -35,16 +35,11 @@ DATES=$(printf '%s' "$INPUT" | jq -r 'keys_unsorted[]' | sort -r)
 printf "# What I've done — generated %s\n" "$TODAY"
 
 for date in $DATES; do
-  is_today=0
-  [ "$date" = "$TODAY" ] && is_today=1
-
-  # For prior days, skip the date entirely if no project under it has bullets.
-  # (Today always prints — it shows "no activity" markers for empty projects.)
-  if [ "$is_today" -eq 0 ]; then
-    has_any=$(printf '%s' "$INPUT" \
-      | jq --arg d "$date" '[.[$d] | values[] | select(length > 0)] | length')
-    [ "$has_any" -eq 0 ] && continue
-  fi
+  # Skip the date entirely if no project under it has bullets — applies to
+  # today as well now (no more "(no git activity in window)" markers).
+  has_any=$(printf '%s' "$INPUT" \
+    | jq --arg d "$date" '[.[$d] | values[] | select(length > 0)] | length')
+  [ "$has_any" -eq 0 ] && continue
 
   if [ "$date" = "$TODAY" ]; then
     heading="Today"
@@ -63,13 +58,7 @@ for date in $DATES; do
       | jq -c --arg d "$date" --arg p "$project" '.[$d][$p]')
     bullet_count=$(printf '%s' "$bullets_json" | jq 'length')
 
-    if [ "$bullet_count" -eq 0 ]; then
-      if [ "$is_today" -eq 1 ]; then
-        printf '\n**%s**\n' "$project"
-        printf -- '- (no git activity in window)\n'
-      fi
-      continue
-    fi
+    [ "$bullet_count" -eq 0 ] && continue
 
     printf '\n**%s**\n' "$project"
     # Index-based access so bullets containing literal newlines (used for

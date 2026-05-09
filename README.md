@@ -63,7 +63,7 @@ When you're ready, run `/rulez:punts-triage`. It enriches any regex-only rows vi
 
 `/rulez:what-have-i-done [N]` rolls up the last N calendar days (default 3) across every Claude project you touched. It dispatches one Agent per project in parallel, then a pure renderer formats the rollup grouped by project per day.
 
-The same markdown is also written to `~/.claude/what-have-i-done/<today>.md`. Re-running on the same day overwrites that file. Empty days for a project are omitted from prior dates; today shows them with `(no git activity in window)` so you see the project was checked.
+The same markdown is also written to `~/.claude/what-have-i-done/<today>.md`. Re-running on the same day overwrites that file. Projects with no activity on a given date are omitted (today included); date headings disappear entirely when nothing under them has bullets.
 
 ## Utility Scripts
 
