@@ -61,9 +61,9 @@ When you're ready, run `/rulez:punts-triage`. It enriches any regex-only rows vi
 
 ## What Have I Done
 
-`/rulez:what-have-i-done [N]` reads the last N calendar days (default 3) across every Claude project you've touched and prints a grouped-by-project rollup of HANDOFF.md commits + recent commit subjects. One Agent per project runs in parallel, then a pure renderer formats the result.
+`/rulez:what-have-i-done [N]` rolls up the last N calendar days (default 3) across every Claude project you touched. It dispatches one Agent per project in parallel, then a pure renderer formats the rollup grouped by project per day.
 
-The same markdown lands in `~/.claude/what-have-i-done/<today>.md` so you can scroll back through prior days. Re-running on the same day overwrites that day's file (later runs catch fresher commits). Days with no activity for a given project are omitted on prior dates and shown as `(no git activity in window)` for today.
+The same markdown is also written to `~/.claude/what-have-i-done/<today>.md`. Re-running on the same day overwrites that file. Empty days for a project are omitted from prior dates; today shows them with `(no git activity in window)` so you see the project was checked.
 
 ## Utility Scripts
 
