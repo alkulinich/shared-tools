@@ -1,5 +1,31 @@
 # Upgrade Guide
 
+## To v1.4.5 — from v1.4.4
+
+Patch release for `/rulez:what-have-i-done`. **No user action required.**
+
+### Changed
+
+- **Empty projects are omitted on every date, today included.** v1.4.0
+  through v1.4.4 special-cased today by rendering empty projects with
+  a `- (no git activity in window)` marker so the user could tell
+  the project was checked. In practice the marker just clutters the
+  rollup — three out of four projects on a typical day have nothing
+  to show, so the rollup opens with a wall of negative space before
+  the actual content. The renderer now applies the same rule that
+  prior days already did: skip projects with no bullets, and skip
+  date headings entirely when no project under them has bullets.
+- **The `(no git activity in window)` string is gone entirely.**
+  Tests, slash command notes, and README updated to match.
+
+### Why
+
+The marker was a defensive choice ("did the project even get
+checked?") that traded readability for one small reassurance. The
+reassurance turned out not to be worth the cost — every fresh
+`/rulez:what-have-i-done` run buried the actual signal under
+no-activity placeholders.
+
 ## To v1.4.4 — from v1.4.3
 
 Patch release for `/rulez:what-have-i-done`. **No user action required.**
