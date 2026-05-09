@@ -1,5 +1,25 @@
 # Upgrade Guide
 
+## To v1.4.3 — from v1.4.2
+
+Patch release for `/rulez:what-have-i-done`. **No user action required.**
+
+### Changed
+
+- **Bullets are flat-only — no nested sub-items.** v1.4.2 invited
+  per-bullet sub-items via `\n  - ` syntax inside the JSON string;
+  the live run produced rollups dense enough to read like a
+  release-note tree, which defeats the "broader picture" goal. The
+  Agent prompt now requires single-line bullets; concrete artifacts
+  (PR numbers, files, decisions) belong inline as a parenthetical at
+  the end of the sentence. The Bad/Good worked example was rewritten
+  with both a "steps-not-substance" Bad and a "nested / multi-line"
+  Bad so future drift is easy to flag.
+
+The renderer still tolerates multi-line bullet strings (defensive
+support landed in v1.4.2) — but the prompt no longer asks for them,
+so produced rollups should stay flat in practice.
+
 ## To v1.4.2 — from v1.4.1
 
 Patch release for `/rulez:what-have-i-done`. **No user action required.**
