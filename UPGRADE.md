@@ -1,5 +1,66 @@
 # Upgrade Guide
 
+## To v1.5.0 — from v1.4.5
+
+Minor release. **No user action required for the global install** —
+the auto-update SessionStart hook picks it up. **Per-project installs
+need a re-run of `bin/setup-per-project.sh`** to refresh the copied
+command bodies (the changes are inside `commands/rulez/*.md`, which
+the per-project installer copies into the repo's `.claude/`).
+
+### Changed
+
+Five commands now dispatch **Agent-tool subagents** to keep large
+outputs (PR diffs, full file bodies, `git diff`, JSON listings,
+UPGRADE.md history) out of the main thread's context. The git-* shell
+scripts behind these commands were already context-safe — pollution
+lived entirely in the gathering / drafting steps inside each command's
+`.md` file.
+
+- **`/rulez:test-pr`** — both Phase 1 (PR diff + linked issue + changed
+  files → test plan) and Phase 3 (typecheck/lint/build/test execution
+  → pass/fail table) run in Agents. Failure output is summarized to
+  the first ~20 lines of stdout+stderr per failing step.
+- **`/rulez:create-pr`** — `eslint --fix` + `git status` + `git diff` +
+  `git log -5` + drafting of branch/title/body all happen inside an
+  Agent. Main thread sees only the proposed PR block.
+- **`/rulez:merge-pr`** step 7 — `gh issue list` + `gh pr list` JSON
+  fetch + table render runs in an Agent.
+- **`/rulez:push-fixes`** — `git diff` + commit-message drafting runs
+  in an Agent.
+- **`/rulez:update-claudeset`** step 5 — UPGRADE.md (now 750+ lines,
+  20+ sections) is sliced inside an Agent down to just the new
+  sections between old and new VERSION.
+
+Conventions match the existing exemplars in
+`commands/rulez/what-have-i-done.md` and `commands/rulez/punts-triage.md`:
+`subagent_type: "general-purpose"`, JSON return validated with
+`jq -e .`, single retry on parse failure, **visible** fallback to inline
+on second failure (never a silent stub — these are user-visible
+actions, not summaries).
+
+### Why
+
+Pure context budget. Same UX, less noise. Diffs, full file bodies, test
+logs, and the entire UPGRADE.md history no longer enter the main thread
+on routine command runs, freeing budget for the actual conversation
+around the work.
+
+### Caveat
+
+For `/rulez:test-pr`, you no longer see live test progress streaming
+into the main thread — you see the final pass/fail table with the
+first 20 lines of stderr+stdout for any failing step. Trade-off vs full
+visibility was made deliberately. If a step fails opaquely, re-run the
+failing command manually to see the full output.
+
+### Deferred
+
+`/rulez:add-issue`, `/rulez:handoff`, `/rulez:start-issue`, and
+`/rulez:brainstorm` deliberately stay on the main thread — they
+*consume* the conversation context they're invoked from, so a subagent
+would lose the very thing they need.
+
 ## To v1.4.5 — from v1.4.4
 
 Patch release for `/rulez:what-have-i-done`. **No user action required.**
