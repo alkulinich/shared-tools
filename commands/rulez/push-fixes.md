@@ -2,43 +2,85 @@
 
 Add fixes to the current branch and push to remote.
 
+The drafting work (`git status`, `git diff`, deciding the commit
+message and file list) runs inside an Agent-tool subagent so the diff
+never enters the main thread. Main thread sees only the proposed
+commit block.
+
 ## Instructions
 
-1. **Check current state:**
-   - Run `git branch --show-current` to confirm we're on a feature branch
-   - Run `git status` to see modified/untracked files
-   - Run `git diff` to understand the changes
+1. **Capture project root and dispatch the fix-drafter Agent.**
 
-2. **Verify we're not on main:**
-   - If on `main`, warn user and suggest using `/rulez:create-pr` instead
+   Set `PROJECT_ROOT=$(pwd)`. Use the **Agent tool** with
+   `subagent_type: "general-purpose"`. Pass the prompt body below
+   verbatim, substituting `<project_root>`:
 
-3. **Generate proposal** with:
-   - **Current branch:** Show the branch name
-   - **Files to stage:** List specific changed files
-   - **Commit message:** Describe the fix (use fix: prefix if it's a bug fix)
+   ```
+   You are drafting a fix commit for the current branch.
+   Operate inside <project_root>.
 
-4. **Present proposal to user:**
+   Steps:
+   1. cd "<project_root>"
+   2. Run: git branch --show-current
+   3. Run: git status --porcelain
+   4. Run: git diff
+   5. Decide:
+        - commit_message: conventional-commit style (fix: / chore: /
+                          docs: / refactor: / style:). Imperative.
+                          ≤ 70 chars. Use fix: when the diff actually
+                          fixes something.
+        - files:          specific paths from `git status` (avoid
+                          `git add .` shape).
+        - on_main:        true if the current branch is "main" or
+                          "master". false otherwise.
+
+   Return a single JSON object, no prose, no code fences:
+     {
+       "branch":         "feature/...",
+       "files":          ["a.ts", "b.ts"],
+       "commit_message": "fix: correct validation logic",
+       "on_main":        false
+     }
+   ```
+
+2. **Validate, retry, fall back.**
+
+   - Extract the first balanced `{ ... }` block from the Agent's final
+     message.
+   - Validate with `printf '%s' "$json" | jq -e . >/dev/null`.
+   - On parse failure: dispatch ONE retry Agent with the same prompt.
+   - On second failure: print
+     `(Agent dispatch failed for fix-drafter, falling back to inline)`
+     and run steps 1.1–1.5 directly in the main thread.
+
+3. **Verify we're not on main.** If the JSON's `on_main` is true, warn
+   the user and suggest using `/rulez:create-pr` instead. Stop here —
+   do not proceed.
+
+4. **Render the proposed commit block** from the JSON:
 
 ```
 ## Push Fixes to Current Branch
 
-**Branch:** `feature/example-branch`
+**Branch:** `<branch>`
 **Files:**
-- path/to/fixed-file.ts
+- <file 1>
+- <file 2>
 
 **Commit message:**
-fix: correct validation logic
+<commit_message>
 ```
 
-5. **Ask user to confirm or edit** using AskUserQuestion tool with options:
+5. **Ask user to confirm or edit** using AskUserQuestion with options:
    - "Push fixes" (proceed)
-   - "Edit files" (modify file list)
-   - "Edit message" (modify commit message)
+   - "Edit files" (modify file list — main thread edits the JSON
+     in-place, no re-dispatch)
+   - "Edit message" (modify commit message — same)
    - "Cancel"
 
 6. **On confirmation**, execute the script:
 ```bash
-~/.claude/skills/rulez-claudeset/scripts/git-push-fixes.sh "<message>" <files...>
+~/.claude/skills/rulez-claudeset/scripts/git-push-fixes.sh "<commit_message>" <files...>
 ```
 
 ## Example Execution
