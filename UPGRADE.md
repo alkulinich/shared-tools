@@ -1,5 +1,36 @@
 # Upgrade Guide
 
+## To v1.4.0 — from v1.3.3
+
+Minor release. **No user action required.** New slash command:
+`/rulez:what-have-i-done`.
+
+### Added
+
+- **`/rulez:what-have-i-done [N]`** — cross-project rollup of the last
+  N calendar days (default 3) of HANDOFF.md commits + commit subjects
+  across every Claude project you've recently touched. Dispatches one
+  general-purpose Agent per project in parallel, merges the per-project
+  JSON returns by date, and renders a grouped-by-project markdown
+  rollup. Output goes to chat and to
+  `~/.claude/what-have-i-done/<today>.md` (overwritten on same-day
+  re-runs).
+- `scripts/what-have-i-done-discover.sh` — discovers recently-touched
+  Claude project dirs and resolves them to their real `cwd` via the
+  first JSONL line of the most-recent session file. Filters
+  `/private/var/...` temp dirs and dedupes by real cwd.
+- `scripts/what-have-i-done-render.sh` — pure stdin→markdown formatter
+  for the merged rollup JSON.
+- `tests/what-have-i-done/` — discovery fixtures + golden render test
+  (mirrors `tests/punts/` shape).
+
+### Why
+
+Built to push back on impostor syndrome on days when it doesn't feel
+like much got done. Reads what already exists in git (HANDOFF.md +
+commit subjects) — no separate tracking layer. Grouping per-project
+per-day mirrors the way I context-switch.
+
 ## To v1.3.3 — from v1.3.2
 
 Patch release. **No user action required.** `/rulez:handoff` now pushes
