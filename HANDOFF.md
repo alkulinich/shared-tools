@@ -2,159 +2,211 @@
 
 ## Task
 
-Two small global-config additions on top of v1.3.2:
-
-1. **Tone rule.** Add a global instruction telling Claude to avoid dense
-   industry-memo register and prefer plain prose (short sentences, plain
-   verbs, one idea per clause). Decided where to put it; landed it in
-   `RULEZ.md` since that file is already loaded into every session via
-   `~/.claude/CLAUDE.md`'s `@RULEZ.md` include.
-2. **v1.3.3 — handoff auto-pushes.** `/rulez:handoff` was committing
-   `HANDOFF.md` but not pushing, because the Claude Code harness
-   intercepts visible `git push origin main` calls with a hard-coded
-   "Git Push to Default Branch" prompt that fires on every handoff
-   (even with auto mode on). Move the push into
-   `scripts/git-commit-handoff.sh` so the harness only sees
-   `bash …handoff.sh` and the push runs unprompted.
+Build `/rulez:what-have-i-done [N]` — a cross-project rollup that
+summarizes the last N calendar days of HANDOFF.md commits + recent
+commit subjects across every Claude project the user touched. Built
+to push back on impostor syndrome on days when it doesn't feel like
+much shipped. Two ship cycles in this session: v1.4.0 (initial) and
+v1.4.1 (patch after the live smoke test surfaced two real flaws).
 
 ## Current State
 
-- Branch: `main`, in sync with `origin/main` (everything pushed).
-- Working tree: only `tmp/` untracked; HANDOFF.md unwritten (this file)
-  is the only outstanding edit before the handoff commit.
-- VERSION: `1.3.3`.
-- Global install at `~/.claude/skills/rulez-claudeset/` is on **1.3.3**
-  (pulled + `bin/setup -q` re-ran, no output = success).
-- Tests: not re-run this session. v1.3.3 changes are scoped to
-  `scripts/git-commit-handoff.sh` (no test coverage) and prose-only
-  files; v1.3.1 tests (34/34) were last green at start of v1.3.2 ship.
+- Branch: `main`, in sync with `origin/main`.
+- Working tree: only `tmp/` and the smoke-test-overwritten
+  `~/.claude/what-have-i-done/2026-05-09.md` outside the repo (a
+  re-run of `/rulez:what-have-i-done` will regenerate it cleanly with
+  the new v1.4.1 grouped bullets).
+- VERSION: `1.4.1`.
+- Global install at `~/.claude/skills/rulez-claudeset/` is on
+  **1.4.1** — pulled, `bin/setup -q` re-ran, four whid script
+  permissions confirmed merged into `~/.claude/settings.json`.
+- Tests: 34 punts + 35 what-have-i-done = **69/69 green**.
 
 Recent commit chain (top of `git log --oneline`):
 
 ```
-24426ad chore: release v1.3.3
-43fd045 feat: handoff script also pushes after commit
-b561a44 docs: add Tone rule to RULEZ.md
-e58b11a docs: handoff — Two patches on top of v1.3.0:
-44dca00 chore: release v1.3.2
-84b198c feat: handoff command nudges user to /compact after committing
-b5c7488 chore: release v1.3.1
-d9601f0 refactor: triage enriches via Agent tool, not claude -p script
+6b45ff6 chore: release v1.4.1
+d0e35e7 fix: /rulez:what-have-i-done runs silently with grouped bullets
+f719ce4 chore: release v1.4.0
+9eff149 docs: tighten what-have-i-done README prose
+7af68a3 docs: README documents /rulez:what-have-i-done
+da67255 feat: /rulez:what-have-i-done slash command
+ada7c1e feat: what-have-i-done discovery script
+5e3a4ff feat: what-have-i-done renderer (pure stdin→markdown)
+42d46a9 test: scaffold tests/what-have-i-done/ runner and helpers
 ```
 
-Files touched this session:
+Files added/modified across both releases:
 
-- `RULEZ.md` — new `## Tone` section at the bottom (4 lines + heading).
-- `scripts/git-commit-handoff.sh` — added a `git push` block after the
-  commit, with safety branches for detached-HEAD and missing-upstream.
-- `commands/rulez/handoff.md` — step 4 retitled "Commit and push it"
-  with inline explanation of the harness-prompt sidestep.
-- `UPGRADE.md` — new `## To v1.3.3 — from v1.3.2` section at top.
-- `VERSION` — `1.3.2` → `1.3.3`.
+- New: `commands/rulez/what-have-i-done.md` (slash command).
+- New: `scripts/what-have-i-done-context.sh` (date window, KEY=VALUE).
+- New: `scripts/what-have-i-done-discover.sh` (recent project dirs → real cwd).
+- New: `scripts/what-have-i-done-render.sh` (pure stdin→markdown).
+- New: `scripts/what-have-i-done-finalize.sh` (merge + render + write + print).
+- New: `tests/what-have-i-done/{run-tests,helpers,test-{render,discover,context,finalize}}.sh`
+  + `fixtures/{render-input.json,render-golden.md}`.
+- Modified: `settings.json` (four whid script allowlist entries +
+  `Skill(rulez:what-have-i-done)`).
+- Modified: `README.md` (commands table row, four utility-script rows,
+  new "## What Have I Done" section, prose tightened to match Punts tone).
+- Modified: `UPGRADE.md` (sections for v1.4.0 and v1.4.1 at the top).
+- Modified: `VERSION` (1.3.3 → 1.4.0 → 1.4.1).
 
 ## What Worked
 
-### Tone rule (commit `b561a44`)
+### v1.4.0 — initial ship via the brainstorming → spec → plan → subagent-driven flow
 
-- Discussed placement first. Compared `RULEZ.md` vs memory (feedback
-  type) vs project `CLAUDE.md` vs output style. Chose `RULEZ.md`
-  because it's deterministic (loaded every session, no recall
-  probability) and you already use it for cross-session global rules
-  (Compact Instructions, Punts).
-- Appended `## Tone` to `/Users/rulez/Dropbox/Projects/26.03-shared-tools/RULEZ.md`,
-  including the "applies to chat replies, not code identifiers or
-  quoted error text" scope clarifier so future-me can judge edge cases.
-- Single commit (`docs: add Tone rule to RULEZ.md`), no version bump
-  (text-only personal-rules content; not behavioural).
-- Pushed and pulled into the global install. Verified the symlinked
-  `~/.claude/RULEZ.md` shows the new section.
-- Will take effect on next session start (CLAUDE.md is read once per
-  session).
+- **Brainstorm** (`/superpowers:brainstorming`) settled five design
+  forks with single-question rounds: evidence source (HANDOFF.md +
+  recent commits), time bucketing (calendar days, configurable count),
+  output target (chat + dated MD), summary shape (grouped by project,
+  1–3 bullets each), agent shape (one Agent per project in parallel,
+  each returns formatted bullets directly).
+- **Spec doc** committed at `docs/superpowers/specs/2026-05-09-what-have-i-done-design.md`
+  with a self-review pass that fixed two minor clarity gaps inline
+  (basename derivation, dates list usage).
+- **Plan** at `docs/superpowers/plans/2026-05-09-what-have-i-done.md`
+  decomposed into 6 tasks: scaffold tests → renderer (TDD) → discovery
+  (TDD) → slash command → README → release.
+- **Subagent-driven execution** with two-stage review (spec compliance
+  then code quality) per task. All six tasks landed cleanly with
+  three plan-defect catches by the implementer subagents:
+  - jq `keys[]` → `keys_unsorted[]` so project insertion order is
+    preserved end-to-end (the original sort would have re-ordered the
+    golden fixture).
+  - Test-side awk range form `'/A/,/B/'` collapsing to a single line
+    on BSD awk when both regexes match `## Yesterday (...)` →
+    rewrote to flag form `awk '/^## Yesterday/{f=1;next} /^## /{f=0} f'`.
+  - `declare -A` (bash 4+) → `awk -F'\t' '!seen[$1]++'` so the
+    discovery script runs on stock macOS bash 3.2.57.
+- Final cross-implementation reviewer returned **READY TO MERGE** with
+  five non-blocking minor follow-ups noted (one of which —
+  empty-prior-day heading — got fixed in v1.4.1; see below).
+- Released as `f719ce4 chore: release v1.4.0`, pushed, pulled into
+  global install. 9 new asserts, 0 failures alongside 34 punts.
 
-### v1.3.3 ship sequence
+### v1.4.1 — patch after live smoke test
 
-- Read `commands/rulez/handoff.md` (step 4) and the existing
-  `scripts/git-commit-handoff.sh` to confirm the script wasn't already
-  pushing. Confirmed: it only committed.
-- Discussed approach (A vs B): A = bake push into script (silent,
-  bypasses harness guard); B = explicit `git push` step in the .md
-  (visible, harness still prompts every time). Chose A because the
-  whole point was to remove friction; documented the tradeoff
-  explicitly in UPGRADE.md so the bypass is auditable.
-- Implemented push block in `scripts/git-commit-handoff.sh` with three
-  safety branches:
-  - Detached HEAD → skip push, log a yellow line.
-  - No upstream set for current branch → skip push, log how to set it.
-  - Push fails (rejected, network, etc.) → log red error, do not exit
-    non-zero (the local commit is preserved either way).
-- Wrapped the actual `git push` with the same `rtk` proxy pattern as
-  the rest of the script.
-- Updated `commands/rulez/handoff.md` step 4 inline, retitled
-  "Commit and push it", with the harness-prompt explanation so the
-  next agent reading it doesn't have to wonder.
-- Bumped VERSION to 1.3.3 and added the new UPGRADE.md top section
-  including the "deliberate, scoped bypass" caveat.
-- Two-commit pattern: `43fd045` (feat, substantive) + `24426ad`
-  (chore: release).
-- Pushed origin/main, pulled into the global install, re-ran
-  `bin/setup -q`. Confirmed `~/.claude/skills/rulez-claudeset/VERSION`
-  reads `1.3.3`.
+The first real-world `/rulez:what-have-i-done` invocation surfaced two
+issues at once:
+
+1. The user got prompted **three times** for harness approval —
+   `(N-1)` arithmetic + a brace+quote heredoc for date math + another
+   heredoc for the merge JSON.
+2. The dc-import-2026 project's day got summarized into 6 short
+   one-per-commit bullets, which read like a commit log, not a
+   standup.
+
+Both fixed inline (no brainstorm/plan/subagent ceremony — it was a
+focused patch):
+
+- **Silent execution.** Moved date math into
+  `scripts/what-have-i-done-context.sh` (KEY=VALUE output) and the
+  merge + render + write into `scripts/what-have-i-done-finalize.sh`.
+  Slash command no longer composes any heredoc bash; it uses the
+  **Write tool** to drop per-Agent JSONs to `/tmp/whid-<basename>.json`,
+  then a single `bash …finalize.sh "$TODAY" "$DATES_LIST" name path …`
+  call does the rest. Whitelisted all four whid scripts in
+  `settings.json`; `Skill(rulez:what-have-i-done)` added too.
+- **Grouped bullets.** Per-project Agent prompt step 6 explicitly
+  asks for 1–3 bullets of 1–2 sentences each, "merging related
+  commits into a single narrative line", with a Bad/Good worked
+  example (LeaseWeb step 3 hardening as the contrast pair).
+- **Empty prior-day headings suppressed.** Renderer now does a
+  pre-pass per date for prior days; if no project under that date has
+  bullets, skips the heading entirely. Today still always prints (it
+  carries the "(no git activity in window)" markers). Flagged as a
+  minor in the v1.4.0 final review; fixed here while in the
+  neighbourhood.
+- Two new test files: `test-context.sh` (4 asserts including a
+  `wc -l` → `awk -F, '{print NF}'` correction the writer caught the
+  hard way) and `test-finalize.sh` (10 asserts covering happy path,
+  missing/invalid JSON skips with stderr warnings, `_note`-only as
+  empty plus the renderer's empty-prior-day suppression). 9 → 35
+  asserts.
+- Two-commit release: `d0e35e7` (substantive) + `6b45ff6` (chore).
+  Pushed, pulled into global install. Permissions confirmed live.
 
 ## What Didn't Work
 
-Nothing concrete failed this session. Explicit non-decisions:
-
-- **No tests added.** `scripts/git-commit-handoff.sh` has no existing
-  test coverage and the change is small + observable in normal use;
-  not worth adding a bash test suite around it. The first real handoff
-  on the new code is its smoke test.
-- **Version not bumped for the Tone rule.** Pure text/prose addition
-  to a personal-rules file; no behaviour, no skillset migration. Bump
-  only if you want auto-update to surface it in `UPGRADE.md`.
-- **Did not bake the push behind a flag.** Considered a `--no-push` /
-  env-var off-switch for power users. Rejected as YAGNI — anyone who
-  doesn't want the push can edit the script or run `git commit -F …`
-  manually instead.
+- **v1.4.0 wasn't actually silent on first run.** The whole point of
+  the tool is to feel weightless, and three approval prompts on the
+  first invocation broke that. Lesson: when designing a slash command,
+  smoke-test the harness friction *before* declaring it shipped, not
+  after. The fix was small (≈2h) but should have been caught in plan.
+- **The original code-quality reviewer for T1 flagged a "missing curly
+  apostrophe in `I've`"** — turns out *I* had introduced that fake
+  requirement in my reviewer prompt; the spec/plan/impl all use ASCII
+  `'` consistently. Verified with `xxd`. Be careful when telling the
+  reviewer what to verify; bad briefs produce false positives.
+- **No CI for the per-project Agent prompt.** The bullet-density
+  problem can only be caught at smoke-test time because we can't
+  golden-test what the model produces. Acceptable, but flag if it
+  drifts again.
 
 ## Next Steps
 
 Ordered by priority:
 
-1. **Live smoke-test v1.3.3.** This very handoff, when committed via
-   the script, should also push automatically. Look for the green
-   "Pushed." line in the script output. (Will be visible right after
-   this HANDOFF.md is committed — before the `/compact` line.)
-2. **Carryovers from v1.3.2's HANDOFF.md** (still all valid):
-   - Live smoke-test v1.3.1 end-to-end (Stop hook → triage Agent
-     dispatches → slice files disappear → raw files become structured).
-   - Wrapper-vs-bare-array fix on the script path
-     (`scripts/punts-enrich.sh` still uses `claude -p --output-format
-     json` and emits the `{result: "..."}` wrapper).
-   - Slice-file accumulation cleanup in `punts-detect.sh` (opportunistic
-     `find -mtime +14 -delete`).
+1. **Live smoke-test v1.4.1 end-to-end.** Run `/rulez:what-have-i-done`
+   in a fresh session — should produce no approval prompts and
+   chunkier bullets. If a prompt fires, the script paths or arguments
+   drifted from the whitelist; fix that, don't approve through. The
+   bullet-density change is judgement-only; if the dc-import day still
+   reads like a commit log, tighten the Agent prompt example further
+   (e.g., add a second Bad/Good pair for documentation-only days).
+2. **Carryovers still valid from v1.3.2 / v1.3.3 handoffs:**
+   - Live smoke-test v1.3.1 punt-detection end-to-end (Stop hook →
+     triage Agent → slice files disappear → raw files become structured).
+   - Wrapper-vs-bare-array fix on `scripts/punts-enrich.sh`
+     (still uses `claude -p --output-format json` and emits the
+     `{result: "..."}` wrapper; consume the bare array directly).
+   - Slice-file accumulation cleanup in `punts-detect.sh`
+     (opportunistic `find -mtime +14 -delete`).
    - Test cleanup race carryover from earlier sessions.
    - Auto-update.sh hardening, statusline auto_compact_threshold, etc.
-3. **Optional:** if the harness ever extends its push-guard to
-   inspect-into-shell-scripts, the v1.3.3 bypass stops working. At
-   that point either move to per-command permissions or accept the
-   prompt back. Not blocking today.
+3. **Open follow-ups flagged in the v1.4.0 final review** (none
+   merit a v1.4.2):
+   - Renderer's outer `for date in $DATES` relies on word-splitting;
+     switch to `while IFS= read -r date` for symmetry with the inner
+     project loop.
+   - Slash command's old `YESTERDAY` reference was removed in v1.4.1
+     (`context.sh` still prints it for parity, but the .md no longer
+     reads it). Could drop from the script too if the variable stays
+     unused after a few cycles.
+   - UPGRADE.md "grouped-by-project" vs README "grouped by project
+     per day" wording — pick one when next touching either file.
+   - Spec/slash-command sentinel divergence: spec says "no git
+     activity in window", slash command says "no activity in window".
+     Both work because the dispatcher only checks for `_note` presence.
 
 ## Key Decisions
 
-- **Tone rule lives in `RULEZ.md`, not memory.** Deterministic load
-  vs probabilistic recall. Memory is a fine secondary surface but
-  shouldn't be the primary home for cross-session style rules.
-- **`/rulez:handoff` push is a deliberate, scoped harness-bypass.**
-  The harness's "Git Push to Default Branch" guard exists for a
-  reason; we are not disabling it globally, only opting one
-  pre-authorized doc-only workflow out of it. Blast radius is one
-  file (`HANDOFF.md`) because the script only stages that file.
-- **Push failures are non-fatal.** If the push rejects (e.g., remote
-  has new commits), the script logs a red error but exits 0. The
-  commit is preserved locally and the user can resolve and push
-  manually. This is a deliberate trade: noisy failure beats silent
-  failure that aborts the handoff and loses the commit's exit-code
-  signalling to whoever invoked the script.
-- **No version bump for `RULEZ.md` content.** Personal-rules content
-  ships with the repo but doesn't drive behaviour migration; bumping
-  for it would dilute the signal of `UPGRADE.md`.
+- **Brainstorm → spec → plan → subagent-driven for v1.4.0; inline
+  patch for v1.4.1.** The full flow is right when there's design
+  judgment to lock in (data flow, file decomposition, agent shape).
+  v1.4.1 was a tightly-scoped fix with no design forks worth
+  brainstorming over — the user gave the direction inline ("wrap
+  calls into scripts and whitelist them"). Don't ceremoniously route
+  small patches through the full superpowers loop just because the
+  big release used it.
+- **Per-project bullets are now narrative, not commit-list.** The
+  Agent prompt has a worked Bad/Good example so the model has a
+  concrete contrast. This is judgment-quality output, not a tested
+  property; if it drifts, edit the example, don't write a test.
+- **Empty prior-day headings: suppress; today: always print.** The
+  asymmetry is intentional. Today's empty markers tell the user
+  "yes I checked this project, no it had nothing"; on prior days that
+  signal is noise.
+- **The slash command never composes heredoc bash.** It is now a
+  hard rule for this command (and a good convention for any future
+  rulez command): if you'd reach for `cat <<EOF`, write a script
+  that takes args, whitelist it, and call it.
+- **Per-Agent JSONs land via the Write tool, not bash heredocs.**
+  The Write tool doesn't trigger the "expansion obfuscation" guard
+  no matter how many braces or quotes the JSON contains. This is the
+  pattern any command that needs to ferry multi-line strings into a
+  shell pipeline should use.
+- **Two-commit release pattern held throughout.** `feat:` /
+  `docs:` / `fix:` for substantive changes, then `chore: release
+  vX.Y.Z` to bump VERSION + UPGRADE.md.
