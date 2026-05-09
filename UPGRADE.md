@@ -1,5 +1,39 @@
 # Upgrade Guide
 
+## To v1.4.4 — from v1.4.3
+
+Patch release for `/rulez:what-have-i-done`. **No user action required.**
+
+### Changed
+
+- **Bullets become signal-only — drop PR numbers, SHAs, file paths.**
+  v1.4.3 banned sub-items but invited "(PR #X, file Y; PR #Z, …)" as
+  an inline parenthetical. The model dutifully shoved every artifact
+  it had into that parenthetical, producing 250–400-character lead
+  bullets — same density as v1.4.2's nested form, just less
+  readable. The Agent prompt now reframes the parenthetical's role
+  as **signal — the why**: a metric ("777/779 LW rows on
+  schema_version 1.0"), a symptom ("Telegram alert spam"), or a
+  trigger ("staging migrate.ts auto-bootstrap bug"). It explicitly
+  forbids PR numbers, commit SHAs, file paths, and enumerations
+  joined by semicolons. Trade-off: PR numbers and file paths are no
+  longer in the rollup; use `git log` or open HANDOFF.md if you need
+  to dig.
+- **Bad/Good worked example rebuilt with three Bads.** v1.4.3's two
+  Bads ("steps-not-substance", "nested") missed the v1.4.3-shaped
+  failure mode; a third Bad ("artifact dump in the parenthetical")
+  now sits next to a Good rebuilt from old v1.4.2 lead bullets.
+- **Soft length advice (~120 chars).** Stated as a self-check
+  ("if it's running long, you're probably enumerating artifacts"),
+  not a hard cap.
+
+### Why
+
+The shape of the bullet drives readability more than the formatting
+rules around it. v1.4.3's "flat with parenthetical" rule was
+correct, but without naming what the parenthetical is *for*, the
+parenthetical became a junk drawer. v1.4.4 names the role.
+
 ## To v1.4.3 — from v1.4.2
 
 Patch release for `/rulez:what-have-i-done`. **No user action required.**
