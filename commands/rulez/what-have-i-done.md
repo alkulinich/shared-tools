@@ -60,19 +60,30 @@ This command runs silently — every shell call is whitelisted. Don't compose ad
       describe **what was worked on**, not the steps you took to do
       it. Group related commits into a single topic. Each bullet is
       one short single-line sentence — NO nested lists, NO embedded
-      newlines, NO sub-items. Concrete artifacts (PR numbers, file
-      names, decisions) belong inline as a parenthetical at the end
-      of the sentence. Use HANDOFF.md and PR titles as the source of
-      grouping; bare commit subjects ("refactor X", "spec → plan →
-      impl") are noise.
+      newlines, NO sub-items. Aim for around 120 characters per
+      bullet; if it's running long, you're probably enumerating
+      artifacts instead of summarising the topic.
+
+      Shape: `<topic in plain language> (<short signal>)`.
+
+      The optional parenthetical is **signal — the why**: a metric
+      ("777/779 LW rows still on schema_version 1.0"), a symptom
+      ("Telegram alert spam"), or a trigger ("staging migrate.ts
+      auto-bootstrap bug"). It is NOT a list of artifacts.
+
+      DROP from the bullet entirely:
+        - PR numbers (#63, #64, …)
+        - Commit SHAs (8c6a384, …)
+        - File paths (src/foo/bar.ts)
+        - Long enumerations of changes joined by semicolons or "+"
+
+      Use HANDOFF.md and PR titles as the source of grouping; bare
+      commit subjects ("refactor X", "spec → plan → impl") are noise.
 
       Bad (steps-not-substance):
         - Wrote spec, then plan
         - Scaffolded tests
         - Implemented the renderer
-        - Implemented the discovery script
-        - Wrote the slash command
-        - Updated README
         - Released
 
       Bad (nested / multi-line — do not do this):
@@ -80,9 +91,18 @@ This command runs silently — every shell call is whitelisted. Don't compose ad
             - PR #63 ...
             - PR #64 ...
 
-      Good (flat, topical, artifacts inline):
-        - Worked on API team's staging findings (PR #63 schema_version mismatch fuse + shared CURRENT_SCHEMA_VERSION constant; PR #64 stopped per-cycle Telegram spam; PR #65 max_nvme_tb with schema bump 2.0→2.1; PR #66 isUnknownIdentifierError + last_fetch_not_found_at column).
-        - Shipped new indexer per RELEASE_PLAN.
+      Bad (artifact dump in the parenthetical — do not do this):
+        - Worked on API team's staging findings (PR #63 schema_version
+          mismatch fuse + extracted CURRENT_SCHEMA_VERSION constant
+          to re-normalize the 777 stale-v1 LW rows; PR #64 alert on
+          broken-row state transitions only, gating sendAlert on
+          brokenPayloadsMatch to stop per-cycle Telegram spam).
+
+      Good (topic + signal, no artifacts):
+        - Acted on API team's staging-dump review (777/779 LW rows
+          still emitting schema_version 1.0, plus Telegram alert spam).
+        - Added max_nvme_tb to capabilities.storage.
+        - Stopped LW step2 from re-fetching not-found products.
 
    7. If no activity at all in the window, return:
         {"_note": "no activity in window"}
